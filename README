@@ -1,0 +1,54 @@
+This is a mirror of http://www.vim.org/scripts/script.php?script_id=1658
+
+Grab the latest dev version from github: https://github.com/scrooloose/nerdtree. 
+
+What is this "NERD tree"??
+
+Check out this demo http://www.flickr.com/photos/30496122@N07/2862367534/sizes/o/
+
+The NERD tree allows you to explore your filesystem and to open files and
+directories. It presents the filesystem to you in the form of a tree which you
+manipulate with the keyboard and/or mouse. It also allows you to perform
+simple filesystem operations.
+
+The following features and functionality are provided by the NERD tree:
+    * Files and directories are displayed in a hierarchical tree structure
+    * Different highlighting is provided for the following types of nodes:
+        * files
+        * directories
+        * sym-links
+        * windows .lnk files
+        * read-only files
+        * executable files
+    * Many (customisable) mappings are provided to manipulate the tree:
+        * Mappings to open/close/explore directory nodes
+        * Mappings to open files in new/existing windows/tabs
+        * Mappings to change the current root of the tree
+        * Mappings to navigate around the tree
+        * ...
+    * Directories and files can be bookmarked.
+    * Most NERD tree navigation can also be done with the mouse
+    * Filtering of tree content (can be toggled at runtime)
+        * custom file filters to prevent e.g. vim backup files being displayed
+        * optional displaying of hidden files (. files)
+        * files can be "turned off" so that only directories are displayed
+    * A textual filesystem menu is provided which allows you to
+      create/delete/move file and directory nodes as well as copy (for
+      supported OSs)
+    * The position and size of the NERD tree window can be customised
+    * The order in which the nodes in the tree are listed can be customised.
+    * A model of your filesystem is created/maintained as you explore it. This
+      has several advantages:
+        * All filesystem information is cached and is only re-read on demand
+        * If you revisit a part of the tree that you left earlier in your
+          session, the directory nodes will be opened/closed as you left them
+    * The script remembers the cursor position and window position in the NERD
+      tree so you can toggle it off (or just close the tree window) and then
+      reopen it (with NERDTreeToggle) the NERD tree window will appear exactly
+      as you left it
+    * You can have a separate NERD tree for each tab, share trees across tabs,
+      or a mix of both.
+    * By default the script overrides the default file browser (netw), so if
+      you :edit a directory a (slighly modified) NERD tree will appear in the
+      current window
+
