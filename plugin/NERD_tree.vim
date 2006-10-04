@@ -1,10 +1,11 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  27 september 2006
+" Last Change:  4 Oct 2006
 " Maintainer:   Martin Grenfell <martin_grenfell at msn.com>
-let s:NERD_tree_version = '1.0beta3'
+let s:NERD_tree_version = '1.0.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
+
 
 " SECTION: Script init stuff {{{1
 "============================================================
@@ -36,13 +37,14 @@ endfunction
 
 "SECTION: Init variable calls {{{2 
 call s:InitVariable("g:NERDTreeWinSize", 30)
-call s:InitVariable("g:NERDTreeIgnore", '\~$')
+if !exists("g:NERDTreeIgnore")
+    let g:NERDTreeIgnore = ['\~$']
+endif
 call s:InitVariable("g:NERDTreeShowHidden", 0)
 call s:InitVariable("g:NERDTreeShowFiles", 1)
 call s:InitVariable("g:NERDTreeSortDirs", 0)
 call s:InitVariable("g:NERDTreeSplitVertical", 1)
 call s:InitVariable("g:NERDTreeWinPos", 1)
-
 
 " SECTION: Script level variable declaration{{{2
 let s:escape_chars =  " `|\"~'#"
@@ -59,6 +61,9 @@ let s:tree_dir_closed = '+'
 let s:tree_file = '-'
 let s:tree_markup_reg = '[ \-+~`|]'
 let s:tree_markup_reg_neg = '[^ \-+~`|]'
+let s:tree_up_dir_line = '.. (up a dir)'
+let s:tree_RO_str = ' [RO]'
+let s:tree_RO_str_reg = ' \[RO\]'
 
 " chars to escape in file/dir names
 let s:escape_chars =  " `|\"~'#"
@@ -117,12 +122,12 @@ function s:oTreeNode.Equals(treenode) dict
     return self.path.GetPath(1) == a:treenode.path.GetPath(1)
 endfunction
 
-"FUNCTION: oTreeNode.FindNodeByAbsPath(path) {{{3 
+"FUNCTION: oTreeNode.FindNode(path) {{{3 
 "Will find one of the children (recursively) that has a full path of a:path
 "
 "Args:
 "path: a path object
-function s:oTreeNode.FindNodeByAbsPath(path) dict
+function s:oTreeNode.FindNode(path) dict
     if a:path.Equals(self.path)
         return self
     endif
@@ -132,7 +137,7 @@ function s:oTreeNode.FindNodeByAbsPath(path) dict
 
     if self.path.isDirectory
         for i in self.children
-            let retVal = i.FindNodeByAbsPath(a:path)
+            let retVal = i.FindNode(a:path)
             if retVal != {}
                 return retVal
             endif
@@ -151,16 +156,27 @@ endfunction
 "Return:
 "a treenode object or {} if no sibling could be found
 function s:oTreeNode.FindSibling(direction) dict
-    for i in range(0, len(self.parent.children)-1)
-        if self.parent.children[i].Equals(self)
-            let siblingIndx = a:direction == 1 ? i+1 : i-1
-            if siblingIndx > len(self.parent.children)-1 || siblingIndx < 0
-                return {}
-            else
+    "get the index of this node in its parents children 
+    let siblingIndx = self.parent.GetChildIndex(self.path)
+
+    if siblingIndx != -1
+        "move a long to the next potential sibling node 
+        let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
+
+        "keep moving along to the next sibling till we find one that is valid 
+        let numSiblings = len(self.parent.children)
+        while siblingIndx >= 0 && siblingIndx < numSiblings
+
+            "if the next node is not an ignored node (i.e. wont show up in the
+            "view) then return it
+            if self.parent.children[siblingIndx].path.Ignore() == 0
                 return self.parent.children[siblingIndx]
             endif
-        endif
-    endfor
+
+            "go to next node 
+            let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
+        endwhile
+    endif
 
     return {}
 endfunction
@@ -223,19 +239,8 @@ function s:oTreeNode.GetChildrenToDisplay() dict
 
     let toReturn = []
     for i in self.children
-
-        let lastPathComponent = i.path.GetLastPathComponent(0)
-
-        "filter out the user specified dirs to ignore 
-        if !t:NERDTreeIgnoreEnabled || lastPathComponent !~ g:NERDTreeIgnore
-
-            "dont show hidden files unless instructed to 
-            if g:NERDTreeShowHidden == 1 || lastPathComponent !~ '^\.'
-
-                if i.path.isDirectory || g:NERDTreeShowFiles == 1
-                    call add(toReturn, i)
-                endif
-            endif
+        if i.path.Ignore() == 0
+            call add(toReturn, i)
         endif
     endfor
     return toReturn
@@ -251,9 +256,71 @@ endfunction
 function s:oTreeNode.GetDisplayString() dict
     if self.path.isSymLink
         return self.path.GetLastPathComponent(1) . ' -> ' . self.path.symLinkDest
+    elseif self.path.isReadOnly
+        return self.path.GetLastPathComponent(1) . s:tree_RO_str
     else
         return self.path.GetLastPathComponent(1) 
     endif
+endfunction
+
+"FUNCTION: oTreeNode.GetChild(path) {{{3 
+"Returns child node of this node that has the given path or {} if no such node
+"exists.
+"
+"This function doesnt not recurse into child dir nodes
+"
+"Args:
+"path: a path object
+function s:oTreeNode.GetChild(path) dict
+    if self.path.isDirectory != 1
+        throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.GetChild() on a file node"
+    endif
+    if stridx(a:path.GetPath(1), self.path.GetPath(1), 0) == -1
+        return {}
+    endif
+
+    let index = self.GetChildIndex(a:path)
+    if index == -1
+        return {}
+    else
+        return self.children[index]
+    endif
+
+endfunction
+
+"FUNCTION: oTreeNode.GetChildIndex(path) {{{3 
+"Returns the index of the child node of this node that has the given path or
+"-1 if no such node exists.
+"
+"This function doesnt not recurse into child dir nodes
+"
+"Args:
+"path: a path object
+function s:oTreeNode.GetChildIndex(path) dict
+    if self.path.isDirectory != 1
+        throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.GetChild() on a file node"
+    endif
+    if stridx(a:path.GetPath(1), self.path.GetPath(1), 0) == -1
+        return -1
+    endif
+
+    "do a binary search for the child 
+    let a = 0
+    let z = len(self.children)
+    while a < z
+        let mid = (a+z)/2
+        let diff = a:path.CompareTo(self.children[mid].path, g:NERDTreeSortDirs)
+
+        if diff == -1
+            let z = mid
+        elseif diff == 1
+            let a = mid+1
+        else
+            return mid
+        endif
+    endwhile
+    return -1
+
 endfunction
 
 "FUNCTION: oTreeNode.InitChildren {{{3 
@@ -278,9 +345,6 @@ function s:oTreeNode.InitChildren() dict
 
         "filter out the .. and . directories 
         if i !~ '\.\.$' && i !~ '\.$'
-
-            let unixpath = s:oPath.WinToUnixPath(i) 
-            let lastPathComponent = substitute(unixpath, '.*/', '', '')
 
             "put the next file in a new node and attach it 
             try
@@ -344,14 +408,81 @@ function s:oTreeNode.Open() dict
     endif
 endfunction
 
-"FUNCTION: oTreeNode.Refresh {{{3 
+"FUNCTION: oTreeNode.OpenRecursively {{{3 
 "Assumes this node is a directory node.
 "
-"Alias for self.InitChildren()
-"
-"Return: the number of child nodes read
+function s:oTreeNode.OpenRecursively() dict
+    if self.path.isDirectory != 1
+        throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.OpenRecursively() on a file node"
+    endif
+
+    let self.isOpen = 1
+    if self.children == []
+        call self.InitChildren()
+    endif
+
+    for i in self.children
+        if i.path.isDirectory == 1
+            call i.OpenRecursively() 
+        endif
+    endfor
+endfunction
+
+"FUNCTION: oTreeNode.Refresh {{{3 
+"Assumes this node is a directory node.
 function s:oTreeNode.Refresh() dict
-    return self.InitChildren()
+    if self.path.isDirectory != 1
+        throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.InitChildren() on a file node"
+    endif
+
+    let newChildNodes = []
+    let invalidFilesFound = 0
+
+    "go thru all the files/dirs under this node 
+    let filesStr = globpath(self.path.GetDir(0), '*') . "\n" . globpath(self.path.GetDir(0), '.*')
+    let files = split(filesStr, "\n")
+    for i in files
+        if i !~ '\.\.$' && i !~ '\.$'
+
+            try
+                "create a new path and see if it exists in this nodes children 
+                let path = s:oPath.New(i)
+                let newNode = self.GetChild(path)
+                if newNode != {} 
+
+                    "if the existing node is a dir can be refreshed then
+                    "refresh it   
+                    if newNode.path.isDirectory && (!empty(newNode.children) || newNode.isOpen == 1)
+                        call newNode.Refresh()
+
+                    "if we have a filenode then refresh the path 
+                    elseif newNode.path.isDirectory == 0
+                        call newNode.path.Refresh()
+                    endif
+
+                    call add(newChildNodes, newNode)
+
+                "the node doesnt exist so create it 
+                else
+                    let newNode = s:oTreeNode.New(path, self)
+                    call add(newChildNodes, newNode)
+                endif
+
+
+            catch /^NERDTree.InvalidArguments/
+                let invalidFilesFound = 1
+            endtry
+        endif
+    endfor
+
+    "swap this nodes children out for the children we just read/refreshed 
+    let self.children = newChildNodes
+    call self.SortChildren()
+    
+    if invalidFilesFound
+        echo "Warning: some files could not be loaded into the NERD tree"
+    endif
+
 endfunction
 
 "FUNCTION: oTreeNode.RemoveChild {{{3 
@@ -465,7 +596,6 @@ function s:oPath.CompareTo(path, dirPriority) dict
             return (self.isDirectory == 0 ? -1 : 1)
         endif
     endif
-
 endfunction
 
 "FUNCTION: oPath.Create() {{{3 
@@ -620,6 +750,32 @@ function s:oPath.GetPathTrunk() dict
     return '/' . join(self.pathSegments[0:-2], '/')
 endfunction
 
+"FUNCTION: oPath.Ignore() {{{3 
+"returns true if this path should be ignored
+function s:oPath.Ignore() dict
+    let lastPathComponent = self.GetLastPathComponent(0)
+
+    "filter out the user specified paths to ignore 
+    if t:NERDTreeIgnoreEnabled
+        for i in g:NERDTreeIgnore
+            if lastPathComponent =~ i
+                return 1
+            endif
+        endfor
+    endif
+
+    "dont show hidden files unless instructed to 
+    if g:NERDTreeShowHidden == 0 && lastPathComponent =~ '^\.'
+        return 1
+    endif
+
+    if g:NERDTreeShowFiles == 0 && self.isDirectory == 0
+        return 1
+    endif
+
+    return 0
+endfunction
+
 "FUNCTION: oPath.Equals() {{{3 
 "
 "Determines whether 2 path objecs are "equal".
@@ -638,38 +794,71 @@ endfunction
 "Throws NERDTree.InvalidArguments exception.
 function s:oPath.New(fullpath) dict
     let newPath = copy(self)
+
+    call newPath.ReadInfoFromDisk(a:fullpath)
+
+    return newPath
+endfunction
+
+"FUNCTION: oPath.NewMinimal() {{{3 
+function s:oPath.NewMinimal(fullpath) dict
+    let newPath = copy(self)
+
     let fullpath = a:fullpath
 
     if !has("unix") 
         let fullpath = s:oPath.WinToUnixPath(fullpath)
     endif
 
+    let newPath.pathSegments = split(fullpath, '/')
+
+    let newPath.isDirectory = isdirectory(fullpath)
+
+    return newPath
+endfunction
+
+"FUNCTION: oPath.ReadInfoFromDisk(fullpath) {{{3 
+"
+"
+"Throws NERDTree.InvalidArguments exception.
+function s:oPath.ReadInfoFromDisk(fullpath) dict
+    let fullpath = a:fullpath
+
+    if !has("unix") 
+        let fullpath = s:oPath.WinToUnixPath(fullpath)
+    endif
+
+    let self.pathSegments = split(fullpath, '/')
+
+    let self.isReadOnly = 0
     if isdirectory(fullpath)
-        let newPath.isDirectory = 1
+        let self.isDirectory = 1
     elseif filereadable(fullpath)
-        let newPath.isDirectory = 0
+        let self.isDirectory = 0
+        let self.isReadOnly = filewritable(fullpath) == 0
     else
         throw "NERDTree.InvalidArguments Exception: Invalid path = " . fullpath
     endif
 
-    let newPath.pathSegments = split(fullpath, '/')
-
     "grab the last part of the path (minus the trailing slash) 
-    let lastPathComponent = newPath.GetLastPathComponent(0)
+    let lastPathComponent = self.GetLastPathComponent(0)
 
     ""get the path to the new node with the parent dir fully resolved 
-    let hardPath = resolve(newPath.GetPathTrunk()) . '/' . lastPathComponent
+    let hardPath = resolve(self.GetPathTrunk()) . '/' . lastPathComponent
 
     ""if  the last part of the path is a symlink then flag it as such 
-    let newPath.isSymLink = (resolve(hardPath) != hardPath)
-    if newPath.isSymLink
-        let newPath.symLinkDest = resolve(fullpath)
-        if isdirectory(newPath.symLinkDest)
-            let newPath.symLinkDest = newPath.symLinkDest . '/'
+    let self.isSymLink = (resolve(hardPath) != hardPath)
+    if self.isSymLink
+        let self.symLinkDest = resolve(fullpath)
+        if isdirectory(self.symLinkDest)
+            let self.symLinkDest = self.symLinkDest . '/'
         endif
     endif
+endfunction
 
-    return newPath
+"FUNCTION: oPath.Refresh() {{{3 
+function s:oPath.Refresh() dict
+    call self.ReadInfoFromDisk(self.GetPath(0))
 endfunction
 
 "FUNCTION: oPath.Rename() {{{3 
@@ -773,7 +962,7 @@ function s:InitNerdTree(dir)
 
     call s:CreateTreeWin()
 
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 
 " Function: s:InstallDocumentation(full_name, revision)   {{{2
@@ -948,6 +1137,11 @@ function s:CreateTreeWin()
         syn match treeLnk       #[^-| `].* -> # 
         syn match treeDir       #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk
         syn match treeCWD       #^/.*$# 
+
+
+        execute "syn match treeUp #". s:tree_up_dir_line ."#"
+        syn match treeFlag #\[RO\]#
+        syn match treeRO #[0-9a-zA-Z]\+.*\[RO\]# contains=treeFlag
         syn match treeOpenable #+\<#
         syn match treeOpenable #\~\<#
         syn match treeOpenable #\~\.#
@@ -956,9 +1150,12 @@ function s:CreateTreeWin()
         hi def link treePrt Normal
         hi def link treeHlp Special
         hi def link treeDir Directory
+        hi def link treeUp Directory
         hi def link treeCWD Statement
         hi def link treeLnk Title
         hi def link treeOpenable Title
+        hi def link treeFlag ignore
+        hi def link treeRO WarningMsg
     endif
 
     " for line continuation
@@ -1018,7 +1215,7 @@ function s:DrawTree(curNode, depth, drawText, vertMap, isLastChild)
         let line = treeParts . a:curNode.GetDisplayString()
 
         call setline(line(".")+1, line)
-        normal j
+        call cursor(line(".")+1, col("."))
     endif
 
     "if the node is an open dir, draw its children 
@@ -1046,33 +1243,6 @@ endfunction
 function s:DumpHelp()
     let old_h = @h
     if t:treeShowHelp == 1
-        "let @h=   "\" <ret> = same as 'o' below\n"
-        "let @h=@h."\" o     = (file) open in previous window\n"
-        "let @h=@h."\" o     = (dir) expand dir tree node\n"
-        "let @h=@h."\" <tab> = (file) open in a new window\n"
-        "let @h=@h."\" t     = (file) open in a new tab\n"
-        "let @h=@h."\" T     = (file) open in a new tab, stay in current tab\n"
-        "let @h=@h."\" x     = close the current dir\n"
-        "let @h=@h."\" C     = chdir top of tree to cursor dir\n"
-        "let @h=@h."\" u     = move up a dir\n"
-        "let @h=@h."\" U     = move up a dir, preserve current tree\n"
-        "let @h=@h."\" r     = refresh cursor dir\n"
-        "let @h=@h."\" R     = refresh current root\n"
-        "let @h=@h."\" p     = move cursor to parent directory\n"
-        "let @h=@h."\" s     = move cursor to next sibling node\n"
-        "let @h=@h."\" S     = move cursor to previous sibling node\n"
-        "let @h=@h."\" H     = toggle show hidden (currently: " .  (g:NERDTreeShowHidden ? "on" : "off") . ")\n"
-        "let @h=@h."\" f     = toggle file filter (currently: " .  (t:NERDTreeIgnoreEnabled ? "on" : "off") . ")\n"
-        "let @h=@h."\" F     = toggle show files (currently: " .  (g:NERDTreeShowFiles ? "on" : "off") . ")\n"
-        "let @h=@h."\" e     = Open file explorer on current dir\n"
-        "let @h=@h."\" E     = Open file explorer in new window on current dir\n"
-        "let @h=@h."\" i     = Insert a new node into the tree/filesystem\n"
-        "let @h=@h."\" D     = Delete a filenode from the tree/filesystem\n"
-        "let @h=@h."\" ?     = toggle help\n"
-
-        "let @h=@h."\" double click = same as 'o'\n"
-        "let @h=@h."\" middle click = same as '<tab>'\n"
-
         let @h=   "\" NERD tree quick help\n"
         let @h=@h."\" ==================================\n"
         let @h=@h."\" Mappings for opening file nodes:\n"
@@ -1089,6 +1259,7 @@ function s:DumpHelp()
         let @h=@h."\" <ret>\n"
         let @h=@h."\" double-click\n"
         let @h=@h."\" o     = expand/close selected directory\n"
+        let @h=@h."\" O     = recursively open selected directory\n"
         let @h=@h."\" x     = close the current dir\n"
         let @h=@h."\" middle-click\n"
         let @h=@h."\" e     = Open file explorer on current dir\n"
@@ -1193,6 +1364,11 @@ endfunction
 "
 "Args:
 "ln: the line number to get the path for
+"
+"Return:
+"A path if a node was selected, {} if nothing is selected.
+"If the 'up a dir' line was selected then the path to the parent of the
+"current root is returned
 function! s:GetPath(ln) 
     let line = getline(a:ln)
 
@@ -1204,6 +1380,10 @@ function! s:GetPath(ln)
     " in case called from outside the tree
     if line !~ '^ *[|`]' || line =~ '^$'
         return {}
+    endif
+
+    if line == s:tree_up_dir_line
+        return s:oPath.New( t:currentRoot.path.GetDir(0) )
     endif
 
     "get the indent level for the file (i.e. how deep in the tree it is) 
@@ -1260,7 +1440,7 @@ endfunction
 function! s:GetSelectedNode() 
     let path = s:GetPath(line("."))
     try 
-        return t:currentRoot.FindNodeByAbsPath(path)
+        return t:currentRoot.FindNode(path)
     catch /.*/
         return {}
     endtry
@@ -1392,12 +1572,12 @@ function s:PutCursorOnNode(treenode)
     endif
 endfunction
 
-"FUNCTION: s:RenderTree {{{2 
+"FUNCTION: s:RenderView {{{2 
 "The entry function for rendering the tree. Renders the root then calls
 "s:DrawTree to draw the children of the root
 "
 "Args:
-function s:RenderTree()
+function s:RenderView()
     execute s:GetTreeWinNum() . "wincmd w"
 
     setlocal modifiable
@@ -1413,12 +1593,19 @@ function s:RenderTree()
     silent! normal ggdG
 	let @" = save_y
 
-
     call s:DumpHelp()
+
+    "delete the blank line before the help and add one after it 
+    call setline(line(".")+1, " ")
+    call cursor(line(".")+1, col("."))
+
+    "add the 'up a dir' line 
+    call setline(line(".")+1, s:tree_up_dir_line)
+    call cursor(line(".")+1, col("."))
 
     "draw the header line  
     call setline(line(".")+1, t:currentRoot.path.GetPath(0))
-    normal j
+    call cursor(line(".")+1, col("."))
     call s:DrawTree(t:currentRoot, 0, 0, [], len(t:currentRoot.children) == 1)
 
     "restore the view 
@@ -1468,6 +1655,9 @@ function s:StripMarkupFromLine(line, removeLeadingSpaces)
     "remove the tree parts and the leading space 
     let line = substitute (line,"^" . s:tree_markup_reg . "*","","")
 
+    "strip off any read only flag 
+    let line = substitute (line, s:tree_RO_str_reg, "","")
+
     let wasdir = 0
     if line =~ '/$' 
         let wasdir = 1
@@ -1496,7 +1686,7 @@ function s:Toggle(dir)
         if s:GetTreeWinNum() == -1
             execute "lcd " . t:currentRoot.path.GetPath(1)
             call s:CreateTreeWin()
-            call s:RenderTree()
+            call s:RenderView()
 
             call s:RestoreScreenState()
         else
@@ -1512,6 +1702,9 @@ endfunction
 "If the current node is a file, open it in the previous window (or a new one
 "if the previous is modified). If it is a directory then it is opened.
 function s:ActivateNode()
+    if getline(".") == s:tree_up_dir_line
+        return s:UpDir(0)
+    endif
     let treenode = s:GetSelectedNode()
     if treenode == {} 
         echo "NERD_tree: cannot open selected entry"
@@ -1520,7 +1713,7 @@ function s:ActivateNode()
 
     if treenode.path.isDirectory
         call treenode.ToggleOpen()
-        call s:RenderTree()
+        call s:RenderView()
         call s:PutCursorOnNode(treenode)
     else
         let oldwin = winnr()
@@ -1537,42 +1730,40 @@ endfunction
 "FUNCTION: s:BindMappings() {{{2
 function s:BindMappings()
     " set up mappings and commands for this buffer
-    nnoremap <buffer> <cr> :call <SID>ActivateNode()<cr>
-    nnoremap <buffer> o :call <SID>ActivateNode()<cr>
-    nnoremap <buffer> <tab> :call <SID>OpenEntrySplit()<cr>
-    nnoremap <buffer> <2-leftmouse> :call <SID>ActivateNode()<cr>
-    nnoremap <buffer> <middlerelease> :call <SID>HandleMiddleMouse()<cr>
-    nnoremap <buffer> <leftrelease> :call <SID>CheckForActivate()<cr>
+    nnoremap <silent> <buffer> <cr> :call <SID>ActivateNode()<cr>
+    nnoremap <silent> <buffer> o :call <SID>ActivateNode()<cr>
+    nnoremap <silent> <buffer> <tab> :call <SID>OpenEntrySplit()<cr>
+    nnoremap <silent> <buffer> <2-leftmouse> :call <SID>ActivateNode()<cr>
+    nnoremap <silent> <buffer> <middlerelease> :call <SID>HandleMiddleMouse()<cr>
+    nnoremap <silent> <buffer> <leftrelease> :call <SID>CheckForActivate()<cr>
 
-    nnoremap <buffer> U :call <SID>UpDir(1)<cr>
-    nnoremap <buffer> u :call <SID>UpDir(0)<cr>
-    nnoremap <buffer> C :call <SID>ChRoot()<cr>
+    nnoremap <silent> <buffer> O :call <SID>OpenNodeRecursively()<cr>
 
-    nnoremap <buffer> R :call <SID>RefreshRoot()<cr>
-    nnoremap <buffer> r :call <SID>RefreshCurrent()<cr>
+    nnoremap <silent> <buffer> U :call <SID>UpDir(1)<cr>
+    nnoremap <silent> <buffer> u :call <SID>UpDir(0)<cr>
+    nnoremap <silent> <buffer> C :call <SID>ChRoot()<cr>
 
-    nnoremap <buffer> ? :call <SID>DisplayHelp()<cr>
-    nnoremap <buffer> H :call <SID>ToggleShowHidden()<cr>
-    nnoremap <buffer> f :call <SID>ToggleIgnoreFilter()<cr>
-    nnoremap <buffer> F :call <SID>ToggleShowFiles()<cr>
+    nnoremap <silent> <buffer> R :call <SID>RefreshRoot()<cr>
+    nnoremap <silent> <buffer> r :call <SID>RefreshCurrent()<cr>
 
-    nnoremap <buffer> x :call <SID>CloseCurrentDir()<cr>
+    nnoremap <silent> <buffer> ? :call <SID>DisplayHelp()<cr>
+    nnoremap <silent> <buffer> H :call <SID>ToggleShowHidden()<cr>
+    nnoremap <silent> <buffer> f :call <SID>ToggleIgnoreFilter()<cr>
+    nnoremap <silent> <buffer> F :call <SID>ToggleShowFiles()<cr>
 
-    "nnoremap <buffer> D :call <SID>DeleteNode()<cr>
-    "nnoremap <buffer> i :call <SID>InsertNewNode()<cr>
-    "nnoremap <buffer> M :call <SID>RenameCurrent()<cr>
-    nnoremap <buffer> m :call <SID>ShowFileSystemMenu()<cr>
+    nnoremap <silent> <buffer> x :call <SID>CloseCurrentDir()<cr>
 
-    nnoremap <buffer> p :call <SID>JumpToParent()<cr>
-    nnoremap <buffer> s :call <SID>JumpToSibling(1)<cr>
-    nnoremap <buffer> S :call <SID>JumpToSibling(0)<cr>
+    nnoremap <silent> <buffer> m :call <SID>ShowFileSystemMenu()<cr>
 
-    nnoremap <buffer> t :call <SID>OpenEntryNewTab(0)<cr>
-    nnoremap <buffer> T :call <SID>OpenEntryNewTab(1)<cr>
+    nnoremap <silent> <buffer> p :call <SID>JumpToParent()<cr>
+    nnoremap <silent> <buffer> s :call <SID>JumpToSibling(1)<cr>
+    nnoremap <silent> <buffer> S :call <SID>JumpToSibling(0)<cr>
 
+    nnoremap <silent> <buffer> t :call <SID>OpenEntryNewTab(0)<cr>
+    nnoremap <silent> <buffer> T :call <SID>OpenEntryNewTab(1)<cr>
 
-    nnoremap <buffer> e :call <SID>OpenExplorer(0)<cr>
-    nnoremap <buffer> E :call <SID>OpenExplorer(1)<cr>
+    nnoremap <silent> <buffer> e :call <SID>OpenExplorer(0)<cr>
+    nnoremap <silent> <buffer> E :call <SID>OpenExplorer(1)<cr>
 endfunction
 
 "FUNCTION: s:CheckForActivate() {{{2
@@ -1607,7 +1798,8 @@ function s:ChRoot()
     execute "lcd " treenode.path.GetPath(1)
 
     let t:currentRoot = treenode
-    call s:RenderTree()
+    call s:RenderView()
+    call s:PutCursorOnNode(t:currentRoot)
 endfunction
 
 " FUNCTION: s:CloseCurrentDir() {{{2
@@ -1619,7 +1811,7 @@ function s:CloseCurrentDir()
         echo "NERDTree: cannot close tree root"
     else
         call treenode.parent.Close()
-        call s:RenderTree()
+        call s:RenderView()
         call s:PutCursorOnNode(treenode.parent)
     endif
 endfunction
@@ -1647,7 +1839,7 @@ function s:DeleteNode()
         try
             call currentNode.path.Delete()
             call currentNode.parent.RemoveChild(currentNode)
-            call s:RenderTree()
+            call s:RenderView()
         catch
             echo "NERDTree: Could not remove node" 
         endtry
@@ -1661,11 +1853,10 @@ endfunction
 " toggles the help display
 function s:DisplayHelp() 
     let t:treeShowHelp = t:treeShowHelp ? 0 : 1
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 
 " FUNCTION: s:HandleMiddleMouse() {{{2
-" Adds a new node to the filesystem and then into the tree
 function s:HandleMiddleMouse() 
     let curNode = s:GetSelectedNode()
     if curNode == {}
@@ -1710,7 +1901,7 @@ function s:InsertNewNode()
         if curDirNode.isOpen == 1 || !empty(curDirNode.children) 
             let newNode = s:oTreeNode.New(newPath, curDirNode)
             call curDirNode.SortChildren()
-            call s:RenderTree()
+            call s:RenderView()
         endif
     catch /.*/
         echo "NERDTree: Node Not Created."
@@ -1809,12 +2000,30 @@ function! s:OpenExplorer(split)
     
 endfunction
 
+" FUNCTION: s:OpenNodeRecursively() {{{2
+function! s:OpenNodeRecursively() 
+    let treenode = s:GetSelectedNode()
+    if treenode != {}
+        if treenode.path.isDirectory == 1
+            echo "Recursively opening " . treenode.path.GetPath(0) . " this could take a while..."
+            call treenode.OpenRecursively()
+            call s:RenderView()
+        else
+            echo "NERDTree: Select a directory node" 
+        endif
+
+    else
+        echo "NERDTree: Select a directory node" 
+    endif
+    
+endfunction
+
 " FUNCTION: s:RefreshRoot() {{{2
 " Reloads the current root. All nodes below this will be lost and the root dir
 " will be reloaded.
 function! s:RefreshRoot() 
     call t:currentRoot.Refresh()
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 
 " FUNCTION: s:RefreshCurrent() {{{2
@@ -1827,14 +2036,14 @@ function! s:RefreshCurrent()
     endif
 
     let curDir = treenode.path.GetDir(1)
-    let parentNode = t:currentRoot.FindNodeByAbsPath( s:oPath.New(curDir) )
+    let parentNode = t:currentRoot.FindNode( s:oPath.New(curDir) )
     if parentNode == {}
         echo "NERD_tree: cannot refresh selected dir"
         return
     endif
 
     call parentNode.Refresh()
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 " FUNCTION: s:RenameCurrent() {{{2
 " allows the user to rename the current file node
@@ -1868,13 +2077,13 @@ function! s:RenameCurrent()
         call curNode.parent.RemoveChild(curNode)
 
         let parentPath = s:oPath.New(curNode.path.GetDir(0))
-        let newParent = t:currentRoot.FindNodeByAbsPath(parentPath)
+        let newParent = t:currentRoot.FindNode(parentPath)
 
         if newParent != {}
             let newNode = s:oTreeNode.New(curNode.path, newParent)
             call newParent.SortChildren()
         endif
-        call s:RenderTree()
+        call s:RenderView()
     catch /.*/
         echo "NERDTree: Node Not Renamed."
     endtry
@@ -1908,7 +2117,7 @@ endfunction
 " toggles the use of the NERDTreeIgnore option 
 function s:ToggleIgnoreFilter() 
     let t:NERDTreeIgnoreEnabled = !t:NERDTreeIgnoreEnabled
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 
 " FUNCTION: s:ToggleShowFiles() {{{2
@@ -1923,7 +2132,7 @@ function s:ToggleShowFiles()
         endif
     endif
 
-    call s:RenderTree()
+    call s:RenderView()
 
     if currentDir != {}
         call s:PutCursorOnNode(currentDir)
@@ -1935,7 +2144,7 @@ endfunction
 " toggles the display of hidden files
 function s:ToggleShowHidden() 
     let g:NERDTreeShowHidden = !g:NERDTreeShowHidden
-    call s:RenderTree()
+    call s:RenderView()
 endfunction
 
 "FUNCTION: s:UpDir(keepState) {{{2
@@ -1970,7 +2179,7 @@ function! s:UpDir(keepState)
 
         endif
 
-        call s:RenderTree()
+        call s:RenderView()
         call s:PutCursorOnNode(oldRoot)
     endif
 
@@ -2016,20 +2225,36 @@ What is this "NERD_tree"??
 
 The NERD tree allows you to explore your filesystem and to open files and
 directories. It presents the filesystem to you in the form of a tree which you
-manipulate with the keyboard and/or mouse.
+manipulate with the keyboard and/or mouse. It also allows you to perform
+simple filesystem operations so you can alter the tree dynamically.
 
-What makes the "NERD_tree" so special?!
-
-The NERD tree takes full advantage of vim 7's features to create and maintain
-an OO model of the filesystem as you explore it. Every directory you go to
-is stored in the NERD_tree model. This means that the state of directories
-(either open or closed) is remembered and if you come back to a directory
-hierarchy later in  your session, the directories in that hierarchy will be
-opened and closed as you left them.  This can be very useful if you are
-working within a framework that contains many directories of which, you only
-care about the content of a few. This also minimises network traffic if you
-are editing files on e.g. a samba share, as all filesystem information is
-cached and is only re-read on demand.
+The following features and functionality are provided by the NERD tree:
+    * Files and directories are displayed in a hierarchical tree structure
+    * Different highlighting is provided for the following types of nodes:
+        * files
+        * directories
+        * sym-links
+        * windows .lnk files
+        * read-only files
+    * Many mappings are provided to manipulate the tree:
+        * Mappings to open/close/explore directory nodes
+        * Mappings to open files in new/existing windows/tabs     
+        * Mappings to change the current root of the tree 
+        * Mappings to navigate around the tree 
+        * ...
+    * Most NERD tree navigation can also be done with the mouse  
+    * Dynamic customisation of tree content
+        * custom file filters to prevent e.g. vim backup files being displayed
+        * optional displaying of hidden files (. files)
+        * files can be "turned off" so that only directories are displayed
+    * A textual filesystem menu is provided which allows you to create new
+      directory nodes and create/delete/rename file nodes
+    * The position and size of the NERD tree window can be customised 
+    * A model of your filesystem is created/maintained as you explore it. This
+      has several advantages:
+        * All filesystem information is cached and is only re-read on demand
+        * If you revisit a part of the tree that you left earlier in your
+          session, the directory nodes will be opened/closed as you left them       
 
 
 ==============================================================================
@@ -2042,7 +2267,7 @@ cached and is only re-read on demand.
 
 :NERDTree [start-directory]                                 *:NERDTree*
                 Opens a fresh NERD tree in [start-directory] or the current
-                directory if [start-directory] isnt specified.
+                directory if [start-directory] isn't specified.
                 For example: >
                     :NERDTree /home/marty/vim7/src
 <               will open a NERD tree in /home/marty/vim7/src.
@@ -2062,58 +2287,42 @@ When the cursor is in the NERD tree window the following mappings may be used:
 
 Key         Description~
 
+<ret>,
 o           If the cursor is on a file, this file is opened in the previous
             window. If the cursor is on a directory, the directory node is
             expanded in the tree.
-
-<ret>       See 'o'
-
+O           Applies to dirs. Recursively opens the selected directory. This
+            could take a while to complete so be prepared to go grab a cup of
+            tea.  
 <tab>       Only applies to files. Opens the selected file in a new split
             window. 
-
-t           Only applies to files. Opens the selected file in a new tab. 
-
-T           Only applies to files. Opens the selected file in a new tab, but
-            keeps the focus in the current tab.
-
+t           Opens the selected node in a new tab. If a dir is selected then an
+            explorer for that dir will be opened.
+T           Same as 't' but keeps the focus on the current tab
 x           Closes the directory that the cursor is inside.
-
 C           Only applies to directories. Changes the current root of the NERD
             tree to the selected directory.
-
 u           Change the root of the tree up one directory.
-
 U           Same as 'u' except the old root is left open.
-
-r           Refreshes the directory that the cursor is currently inside. If
+r           Recursively refreshes the directory that the cursor is currently inside. If
             the cursor is on a directory node, this directory is refreshed.
-
-R           Refreshes the current root of the tree.
-
+R           Recursively refreshes the current root of the tree... this could
+            take a while for large trees.
 p           Moves the cursor to parent directory of the directory it is
             currently inside.
-
 s           Moves the cursor to next sibling of the current node.
-
 S           Moves the cursor to previous sibling of the current node.
-
 H           Toggles whether hidden files are shown or not.
-
-f           Toggles whether the file filter (as specified in the
-            |NERDTreeIgnore| option) is used.
-
+f           Toggles whether the file filters (as specified in the
+            |NERDTreeIgnore| option) are used.
 F           Toggles the |NERDTreeShowFiles| option, causing files to be hidden
             if they are currently displayed and vice versa.   
-
 e           If the cursor is on a directory node, this directory is opened in
             a file explorer. If it is on a file, the file-node's parent directory is
             opened in a file explorer. The file explorer is always opened in
             the previous window.
-
 E           Like 'e' except the file explorer is opened in a new split window.
-
 m           Displays the filesystem menu see |NERD_tree-filesys-menu|.
-
 ?           Toggles the display of the quick help at the top of the tree.
 
 The following mouse mappings are available:
@@ -2167,10 +2376,10 @@ NERD tree. These options should be set in your vimrc.
 |NERDTreeIgnore|                Tells the NERD tree which files to ignore.
 
 |NERDTreeShowFiles|             Tells the NERD tree whether to display files
-                                in the tree.
+                                in the tree on startup.
 
 |NERDTreeShowHidden|            Tells the NERD tree whether to display hidden
-                                files on startup
+                                files on startup.
 
 |NERDTreeSortDirs|              Tells the NERD tree how to position the
                                 directory/file nodes within their parent node. 
@@ -2178,14 +2387,14 @@ NERD tree. These options should be set in your vimrc.
 
 |NERDTreeSplitVertical|         Tells the script whether the NERD tree should
                                 be created by splitting the window vertically
-                                or horizontally
+                                or horizontally.
 
-|NERDTreeWinPos|                   Tells the script where to put the NERD tree
-                                window
+|NERDTreeWinPos|                Tells the script where to put the NERD tree
+                                window.
                                
 
 |NERDTreeWinSize|               Sets the window size when the NERD tree is
-                                opened
+                                opened.
 
 ------------------------------------------------------------------------------
                                                       *NERD_tree-cust-details*
@@ -2202,20 +2411,24 @@ off with this line in your vimrc: >
 
 ------------------------------------------------------------------------------
                                                               *NERDTreeIgnore*                
-This option is used to specify which files the NERD tree should ignore. It
-should be set to a regular expression. Then, any files matching this
-expression are ignored. For example if you put the following line in your
+This option is used to specify which files the NERD tree should ignore.  It
+must be a list of regular expressions. When the NERD tree is rendered, any
+files/dirs that match any of the regex's in NERDTreeIgnore wont be displayed. 
+
+For example if you put the following line in your
 vimrc: >
-    let NERDTreeIgnore='.vim$\|\~$'
+    let NERDTreeIgnore=['.vim$', '\~$']
 <
 then all files ending in .vim or ~ will be ignored. 
 
-Defaults to '\~$'.
-
 Note: to tell the NERD tree not to ignore any files you must use the following
 line: >
-    let NERDTreeIgnore='^$'
+    let NERDTreeIgnore=[]
 <
+
+The file filters can be turned on and off dynamically with the f mapping.
+
+Defaults to ['\~$'].
 
 ------------------------------------------------------------------------------
                                                            *NERDTreeShowFiles*            
@@ -2239,7 +2452,7 @@ Defaults to 1.
                                                           *NERDTreeShowHidden*            
 This option tells vim whether to display hidden files by default. This option
 can be dynamically toggled with the D mapping see |NERD_tree_mappings|.
-Use one of the follow line to set this option: >
+Use one of the follow lines to set this option: >
     let NERDTreeShowHidden=0
     let NERDTreeShowHidden=1
 <
@@ -2255,8 +2468,7 @@ directory nodes within their parent. This option can take 3 values: >
     let NERDTreeSortDirs=-1
 <
 If NERDTreeSortDirs is set to 0 then no distinction is made between file nodes
-and directory nodes and they are sorted as they appear in a directory listing
-on the operating system (usually alphbetically).
+and directory nodes and they are sorted alphabetically.
 If NERDTreeSortDirs is set to 1 then directories will appear above the files. 
 If NERDTreeSortDirs is set to -1 then directories will appear below the files. 
 
@@ -2270,7 +2482,7 @@ tree window appears. This option can take 2 values: >
     let NERDTreeSplitVertical=1
 <
 If it is set to 1 then the NERD tree window will appear on either the left or
-right side of the screen (depending on the |NERDTreeLeft| option).
+right side of the screen (depending on the |NERDTreeWinPos| option).
 
 If it set to 0 then the NERD tree window will appear at the top of the screen.
 
@@ -2310,19 +2522,13 @@ Defaults to 30.
 
 Window manager integration?
 
-More mappings to make it faster to use.
-
 make more extensive filesystem operations available
-
-make it highlight read only files, symlinks etc.
 
 make the mappings customisable?
 
 dynamic hiding of tree content (eg, if you dont want to see a particular
 directory for the rest of the current vim session, you can hide it with a
 mapping)
-
-stick a ".. (up  a dir)" option at the top of the tree
 
 ==============================================================================
                                                             *NERD_tree-author*
@@ -2336,7 +2542,7 @@ computer nerd for a living.
 
 He can be reached at martin_grenfell at msn.com. He would love to hear from
 you, so feel free to send him suggestions and/or comments about this plugin.
-Dont be shy --- the worst he can do is slaughter you and stuff you in the
+Don't be shy --- the worst he can do is slaughter you and stuff you in the
 fridge for later.    
 
 ==============================================================================
@@ -2355,7 +2561,5 @@ line in the gui.
 
 Thanks to Thomas Scott Urban the author of the vtreeexplorer plugin whose gui
 code i borrowed from.
-
-
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2 fdc=4:
