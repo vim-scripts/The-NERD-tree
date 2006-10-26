@@ -1,23 +1,10 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  10 Oct 2006
+" Last Change:  26 Oct 2006
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.1.0'
+let s:NERD_tree_version = '1.1.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
-
-"changes since 1.0.0
-"
-"opening recursively now ignores dirs if path.Ignore() is true "
-"
-"now the CWD is never changed automatically in teh script
-"
-"added NERDTreeChDirMode option
-"
-"added cd mapping
-"
-"added q mapping
- 
 
 " SECTION: Script init stuff {{{1
 "============================================================
@@ -77,9 +64,6 @@ let s:tree_markup_reg_neg = '[^ \-+~`|]'
 let s:tree_up_dir_line = '.. (up a dir)'
 let s:tree_RO_str = ' [RO]'
 let s:tree_RO_str_reg = ' \[RO\]'
-
-" chars to escape in file/dir names
-let s:escape_chars =  " `|\"~'#"
 
 " SECTION: Commands {{{1
 "============================================================
@@ -1062,7 +1046,7 @@ function s:InstallDocumentation(full_name, revision)
     let l:vim_doc_path    = fnamemodify(a:full_name, ':h:h') . l:doc_path
     if (!(filewritable(l:vim_doc_path) == 2))
          "Doc path: " . l:vim_doc_path
-        call s:NerdEcho("Doc path: " . l:vim_doc_path, 0)
+        echo "Doc path: " . l:vim_doc_path
         execute l:mkdir_cmd . '"' . l:vim_doc_path . '"'
         if (!(filewritable(l:vim_doc_path) == 2))
             " Try a default configuration in user home:
@@ -1802,9 +1786,9 @@ function s:BindMappings()
     nnoremap <silent> <buffer> <cr> :call <SID>ActivateNode()<cr>
     nnoremap <silent> <buffer> o :call <SID>ActivateNode()<cr>
     nnoremap <silent> <buffer> <tab> :call <SID>OpenEntrySplit()<cr>
-    nnoremap <silent> <buffer> <2-leftmouse> :call <SID>ActivateNode()<cr>
+    nnoremap <silent> <buffer> <2-leftmouse> :call <SID>ActivateNode()<cr> 
     nnoremap <silent> <buffer> <middlerelease> :call <SID>HandleMiddleMouse()<cr>
-    nnoremap <silent> <buffer> <leftrelease> :call <SID>CheckForActivate()<cr>
+    nnoremap <silent> <buffer> <leftrelease> <leftrelease>:call <SID>CheckForActivate()<cr>
 
     nnoremap <silent> <buffer> O :call <SID>OpenNodeRecursively()<cr>
 
@@ -2119,6 +2103,7 @@ endfunction
 " Reloads the current root. All nodes below this will be lost and the root dir
 " will be reloaded.
 function! s:RefreshRoot() 
+    echo "NERDTree: Refreshing the root node. This could take a while..."
     call t:currentRoot.Refresh()
     call s:RenderView()
 endfunction
@@ -2139,6 +2124,7 @@ function! s:RefreshCurrent()
         return
     endif
 
+    echo "NERDTree: Refreshing node. This could take a while..."
     call parentNode.Refresh()
     call s:RenderView()
 endfunction
@@ -2252,13 +2238,12 @@ endfunction
 "re-rendered
 function! s:UpDir(keepState) 
 
-    let cwd = getcwd()
+    let cwd = t:currentRoot.path.GetPath(0)
     if cwd == "/" || cwd =~ '^[^/]..$'
         echo "NERDTree: already at top dir"
     else
         if !a:keepState
             call t:currentRoot.Close()
-
         endif
 
         let oldRoot = t:currentRoot
@@ -2279,6 +2264,7 @@ function! s:UpDir(keepState)
     endif
 
 endfunction
+
 " SECTION: Doc installation call {{{1
 silent call s:InstallDocumentation(expand('<sfile>:p'), s:NERD_tree_version)
 "============================================================
@@ -2701,6 +2687,9 @@ code i borrowed from.
 
 Thanks to Terrance Cohen for pointing out a bug where the script was changing
 vims CWD all over the show.
+
+Thanks to Yegappan Lakshmanan for telling me how to fix a bug that was causing
+vim to go into visual mode everytime you double clicked a node :)
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2 fdc=4:
