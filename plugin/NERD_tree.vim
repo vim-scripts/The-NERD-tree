@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  26 Oct 2006
+" Last Change:  14 Nov 2006
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.1.1'
+let s:NERD_tree_version = '1.2'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -103,6 +103,23 @@ function s:oTreeNode.Close() dict
         throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.Close() on a file node"
     endif
     let self.isOpen = 0
+endfunction
+
+"FUNCTION: oTreeNode.CloseChildren {{{3 
+"Assumes this node is a directory node.
+"
+"Throws a NERDTree.IllegalOperation exception if called a filenode.
+"
+"Closes all the child dir nodes of this node 
+function s:oTreeNode.CloseChildren() dict
+    if self.path.isDirectory != 1
+        throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.Close() on a file node"
+    endif
+    for i in self.children
+        if i.path.isDirectory
+            call i.Close()
+        endif
+    endfor
 endfunction
 
 "FUNCTION: oTreeNode.Equals(treenode) {{{3 
@@ -1310,6 +1327,7 @@ function s:DumpHelp()
         let @h=@h."\" o     = expand/close selected directory\n"
         let @h=@h."\" O     = recursively open selected directory\n"
         let @h=@h."\" x     = close the current dir\n"
+        let @h=@h."\" X     = close all children of current node\n"
         let @h=@h."\" middle-click\n"
         let @h=@h."\" e     = Open file explorer on current dir\n"
         let @h=@h."\" E     = Open file explorer in new window on current dir\n"
@@ -1595,7 +1613,7 @@ function! s:OpenNodeSplit(treenode)
     endif
 
     " Open the new window
-    exec("silent " . splitMode." sp " . a:treenode.path.GetPath(1))
+    exec("silent " . splitMode." sp " . a:treenode.path.GetPath(0))
 
     " resize the explorer window if it is larger than the requested size
     exec(there)
@@ -1775,7 +1793,7 @@ function s:ActivateNode()
             wincmd p
             call s:OpenFileNodeSplit(treenode)
         else
-            exec ("edit " . treenode.path.GetPath(1))
+            exec ("edit " . treenode.path.GetPath(0))
         endif
     endif
 endfunction
@@ -1809,6 +1827,7 @@ function s:BindMappings()
     nnoremap <silent> <buffer> F :call <SID>ToggleShowFiles()<cr>
 
     nnoremap <silent> <buffer> x :call <SID>CloseCurrentDir()<cr>
+    nnoremap <silent> <buffer> X :call <SID>CloseChildren()<cr>
 
     nnoremap <silent> <buffer> m :call <SID>ShowFileSystemMenu()<cr>
 
@@ -1872,7 +1891,7 @@ function s:ChRoot()
     
     "change dir to the dir of the new root if instructed to 
     if g:NERDTreeChDirMode == 2
-        exec "cd " . treenode.path.GetPath(1)
+        exec "cd " . treenode.path.GetPath(0)
     endif
 
 
@@ -1880,6 +1899,24 @@ function s:ChRoot()
     call s:PutCursorOnNode(t:currentRoot)
 endfunction
 
+" FUNCTION: s:CloseChildren() {{{2
+" closes all childnodes of the current node
+function s:CloseChildren() 
+    let currentNode = s:GetSelectedNode()
+    if currentNode.path.isDirectory == 0
+        let currentNode = currentNode.parent
+    endif
+
+    if empty(currentNode)
+        echo "NERDTree: cannot close children"
+    else
+        call currentNode.CloseChildren()
+        call s:RenderView()
+        call s:PutCursorOnNode(currentNode)
+    endif
+
+
+endfunction
 " FUNCTION: s:CloseCurrentDir() {{{2
 " closes the parent dir of the current node
 function s:CloseCurrentDir() 
@@ -1908,16 +1945,19 @@ function s:DeleteNode()
         return
     endif
 
-    let choice = input("|NERDTree Node Deletor\n" .
+    echo "|NERDTree Node Deletor\n" .
                      \ "|==========================================================\n". 
                      \ "|Are you sure you wish to delete the file:\n" . 
-                     \ "|" . currentNode.path.GetPath(0) . " (yN):")
+                     \ "|" . currentNode.path.GetPath(0) . " (yN):"
+
+    let choice = nr2char(getchar())
 
     if choice == 'y'
         try
             call currentNode.path.Delete()
             call currentNode.parent.RemoveChild(currentNode)
             call s:RenderView()
+            redraw
         catch
             echo "NERDTree: Could not remove node" 
         endtry
@@ -1967,7 +2007,7 @@ function s:InsertNewNode()
     let newNodeName = input("|NERDTree Node Creator\n" .
                           \ "|==========================================================\n". 
                           \ "|Enter the dir/file name to be created. Dirs end with a '/'\n" . 
-                          \ "|" . curDirNode.path.GetPath(1))
+                          \ "|", curDirNode.path.GetPath(0))
     
     if newNodeName == ''
         echo "NERDTree: Node Creation Aborted."
@@ -1975,7 +2015,7 @@ function s:InsertNewNode()
     endif
 
     try
-        let newPath = s:oPath.Create(curDirNode.path.GetPath(0) . newNodeName)
+        let newPath = s:oPath.Create(newNodeName)
 
         let parentNode = t:currentRoot.FindNode(s:oPath.New(newPath.GetPathTrunk()))
 
@@ -2035,7 +2075,7 @@ function! s:OpenEntryNewTab(stayCurrentTab)
     let treenode = s:GetSelectedNode()
     if treenode != {}
         let curTabNr = tabpagenr()
-        exec "tabedit " . treenode.path.GetPath(1)
+        exec "tabedit " . treenode.path.GetPath(0)
         if a:stayCurrentTab
             exec "tabnext " . curTabNr
         endif
@@ -2072,7 +2112,7 @@ function! s:OpenExplorer(split)
                 wincmd p
                 call s:OpenDirNodeSplit(treenode)
             else
-                exec ("edit " . treenode.path.GetPath(1))
+                exec ("edit " . treenode.path.GetPath(0))
             endif
         endif
     else
@@ -2086,9 +2126,11 @@ function! s:OpenNodeRecursively()
     let treenode = s:GetSelectedNode()
     if treenode != {}
         if treenode.path.isDirectory == 1
-            echo "Recursively opening " . treenode.path.GetPath(0) . " this could take a while..."
+            echo "Recursively opening node this could take a while..."
             call treenode.OpenRecursively()
             call s:RenderView()
+            redraw
+            echo "Recursively opening node this could take a while... FINISHED"
         else
             echo "NERDTree: Select a directory node" 
         endif
@@ -2106,6 +2148,8 @@ function! s:RefreshRoot()
     echo "NERDTree: Refreshing the root node. This could take a while..."
     call t:currentRoot.Refresh()
     call s:RenderView()
+    redraw
+    echo "NERDTree: Refreshing the root node. This could take a while... FINISHED"
 endfunction
 
 " FUNCTION: s:RefreshCurrent() {{{2
@@ -2127,6 +2171,8 @@ function! s:RefreshCurrent()
     echo "NERDTree: Refreshing node. This could take a while..."
     call parentNode.Refresh()
     call s:RenderView()
+    redraw
+    echo "NERDTree: Refreshing node. This could take a while... FINISHED"
 endfunction
 " FUNCTION: s:RenameCurrent() {{{2
 " allows the user to rename the current file node
@@ -2180,12 +2226,15 @@ function s:ShowFileSystemMenu()
         return
     endif
 
-    let choice = input("|NERDTree Filesystem Menu\n" .
-                     \ "|==========================================================\n". 
-                     \ "|Select the desired operation:                             \n" . 
-                     \ "| (1) - Add a childnode\n".
-                     \ "| (2) - Rename the current node\n".
-                     \ "| (3) - Delete the current node\n\n")
+
+    echo "|NERDTree Filesystem Menu\n" .
+       \ "|==========================================================\n". 
+       \ "|Select the desired operation:                             \n" . 
+       \ "| (1) - Add a childnode\n".
+       \ "| (2) - Rename the current node\n".
+       \ "| (3) - Delete the current node\n\n"
+
+    let choice = nr2char(getchar())
 
     if choice == 1
         call s:InsertNewNode()
@@ -2387,6 +2436,7 @@ t           Opens the selected node in a new tab. If a dir is selected then an
             explorer for that dir will be opened.
 T           Same as 't' but keeps the focus on the current tab
 x           Closes the directory that the cursor is inside.
+X           Closes all children (non-recursively) of the current node
 C           Only applies to directories. Changes the current root of the NERD
             tree to the selected directory.
 cd          Changes the current working directory to the directory of the
