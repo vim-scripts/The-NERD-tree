@@ -1,7 +1,16 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  14 Nov 2006
+" Last Change:  19 jan 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.2'
+let s:NERD_tree_version = '1.3'
+
+"now it deletes directories as well as files 
+"
+"the NERDTreeChDirMode option now defaults to 1 for windows users so if they
+"
+"open the nerd tree on another drive it will still work
+"
+"now the X mapping recursively closes a tree node (not just to one level like
+"b4)
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -35,7 +44,7 @@ function s:InitVariable(var, value)
 endfunction
 
 "SECTION: Init variable calls {{{2 
-call s:InitVariable("g:NERDTreeChDirMode", 0)
+call s:InitVariable("g:NERDTreeChDirMode", 1)
 if !exists("g:NERDTreeIgnore")
     let g:NERDTreeIgnore = ['\~$']
 endif
@@ -45,6 +54,18 @@ call s:InitVariable("g:NERDTreeSortDirs", 0)
 call s:InitVariable("g:NERDTreeSplitVertical", 1)
 call s:InitVariable("g:NERDTreeWinPos", 1)
 call s:InitVariable("g:NERDTreeWinSize", 30)
+
+let s:running_windows = has("win16") || has("win32") || has("win64")
+
+"init the shell command that will be used to remove dir trees 
+"
+"Note: the space after the command is important
+if s:running_windows
+    call s:InitVariable("g:NERDRemoveDirCmd", 'rmdir /s /q ')
+else
+    call s:InitVariable("g:NERDRemoveDirCmd", 'rm -rf ')
+end
+
 
 " SECTION: Script level variable declaration{{{2
 let s:escape_chars =  " `|\"~'#"
@@ -64,6 +85,12 @@ let s:tree_markup_reg_neg = '[^ \-+~`|]'
 let s:tree_up_dir_line = '.. (up a dir)'
 let s:tree_RO_str = ' [RO]'
 let s:tree_RO_str_reg = ' \[RO\]'
+
+let s:os_slash = '/'
+if s:running_windows
+    let s:os_slash = '\'
+end
+
 
 " SECTION: Commands {{{1
 "============================================================
@@ -118,6 +145,7 @@ function s:oTreeNode.CloseChildren() dict
     for i in self.children
         if i.path.isDirectory
             call i.Close()
+            call i.CloseChildren()
         endif
     endfor
 endfunction
@@ -642,7 +670,7 @@ function s:oPath.Create(fullpath) dict
 
     "get the unix version of the input path 
     let fullpath = a:fullpath
-    if !has("unix") 
+    if s:running_windows
         let fullpath = s:oPath.WinToUnixPath(fullpath)
     endif
 
@@ -650,7 +678,7 @@ function s:oPath.Create(fullpath) dict
 
         "if it ends with a slash, assume its a dir create it 
         if fullpath =~ '\/$'
-            call mkdir(fullpath)
+            call mkdir(fullpath, 'p')
 
         "assume its a file and create 
         else
@@ -671,17 +699,16 @@ endfunction
 "Throws NERDTree.Path.Deletion exceptions
 function s:oPath.Delete() dict
     if self.isDirectory 
-        throw "NERDTree.Path.Deletion Exception: Cannot delete directories"
-    endif
-
-    try 
+        let success = system(g:NERDRemoveDirCmd . self.GetPathForOS(0))
+        if v:shell_error != 0
+            throw "NERDTree.Path.Deletion Exception: Could not delete directory: '" . self.GetPath(0) . "'"
+        end
+    else
         let success = delete(self.GetPath(0))
         if success != 0
-            throw "NERDTree.Path.Deletion Exception: Could not delete: '" . self.GetPath(0) . "'"
+            throw "NERDTree.Path.Deletion Exception: Could not delete file: '" . self.GetPath(0) . "'"
         endif
-    catch /.*/
-        throw "NERDTree.Path.Deletion Exception: Could not delete: '" . self.GetPath(0) . "'"
-    endtry
+    endif
 endfunction
 
 "FUNCTION: oPath.GetAbsPath() {{{3 
@@ -785,6 +812,34 @@ function s:oPath.GetPath(esc) dict
     return toReturn
 endfunction
 
+"FUNCTION: oPath.GetPathForOS() {{{3 
+"
+"Gets the string path for this path object that is appropriate for the OS.
+"EG, in windows c:\foo\bar
+"    in *nix  /foo/bar
+"
+"Args:
+"esc: if 1 then all the tricky chars in the returned string will be escaped      
+function s:oPath.GetPathForOS(esc) dict
+    let lead = s:os_slash
+
+    "if we are running windows then slap a drive letter on the front 
+    if s:running_windows
+        let lead = strpart(getcwd(), 0, 2) . s:os_slash
+    end
+
+    let toReturn = lead . join(self.pathSegments, s:os_slash)
+
+    if self.isDirectory && toReturn !~ escape(s:os_slash, '\/') . '$'
+        let toReturn  = toReturn . s:os_slash
+    endif
+
+    if a:esc
+        let toReturn = escape(toReturn, s:escape_chars)
+    endif
+    return toReturn
+endfunction
+
 "FUNCTION: oPath.GetPathTrunk() {{{3 
 "Gets the path without the last segment on the end.
 function s:oPath.GetPathTrunk() dict
@@ -847,7 +902,7 @@ function s:oPath.NewMinimal(fullpath) dict
 
     let fullpath = a:fullpath
 
-    if !has("unix") 
+    if s:running_windows
         let fullpath = s:oPath.WinToUnixPath(fullpath)
     endif
 
@@ -865,7 +920,7 @@ endfunction
 function s:oPath.ReadInfoFromDisk(fullpath) dict
     let fullpath = a:fullpath
 
-    if !has("unix") 
+    if s:running_windows
         let fullpath = s:oPath.WinToUnixPath(fullpath)
     endif
 
@@ -1940,19 +1995,26 @@ function s:DeleteNode()
         echo "NERDTree: Put the cursor on a file node first"
         return
     endif
+
+    let confirmed = 0
+
     if currentNode.path.isDirectory
-        echo "NERDTree: deletion of directories is not supported" 
-        return
-    endif
+        let choice =input( "|NERDTree Node Deletor\n" .
+                         \ "|==========================================================\n". 
+                         \ "|STOP! To delete this entire directory, type 'yes'\n" . 
+                         \ "|" . currentNode.path.GetPathForOS(0) . ": ")
+        let confirmed = choice == 'yes'
+    else
+        echo "|NERDTree Node Deletor\n" .
+                         \ "|==========================================================\n". 
+                         \ "|Are you sure you wish to delete the node:\n" . 
+                         \ "|" . currentNode.path.GetPathForOS(0) . " (yN):"
+        let choice = nr2char(getchar())
+        let confirmed = choice == 'y'
+    end
 
-    echo "|NERDTree Node Deletor\n" .
-                     \ "|==========================================================\n". 
-                     \ "|Are you sure you wish to delete the file:\n" . 
-                     \ "|" . currentNode.path.GetPath(0) . " (yN):"
 
-    let choice = nr2char(getchar())
-
-    if choice == 'y'
+    if confirmed
         try
             call currentNode.path.Delete()
             call currentNode.parent.RemoveChild(currentNode)
@@ -2126,11 +2188,11 @@ function! s:OpenNodeRecursively()
     let treenode = s:GetSelectedNode()
     if treenode != {}
         if treenode.path.isDirectory == 1
-            echo "Recursively opening node this could take a while..."
+            echo "Recursively opening node. This could take a while..."
             call treenode.OpenRecursively()
             call s:RenderView()
             redraw
-            echo "Recursively opening node this could take a while... FINISHED"
+            echo "Recursively opening node. This could take a while... FINISHED"
         else
             echo "NERDTree: Select a directory node" 
         endif
@@ -2436,7 +2498,7 @@ t           Opens the selected node in a new tab. If a dir is selected then an
             explorer for that dir will be opened.
 T           Same as 't' but keeps the focus on the current tab
 x           Closes the directory that the cursor is inside.
-X           Closes all children (non-recursively) of the current node
+X           Closes all children (recursively) of the current node
 C           Only applies to directories. Changes the current root of the NERD
             tree to the selected directory.
 cd          Changes the current working directory to the directory of the
@@ -2494,7 +2556,9 @@ character, a directory is created, else a file is created. The new node is
 inserted as a child of the current node, or the current node's parent (if the
 current node is a file, not a dir)
 
-Deletion and renaming of file nodes.  
+Deletion of file and directories.
+
+Renaming of file nodes.  
 
 To access the filesystem menu, put the cursor on a node and press 'm'.
 
@@ -2575,12 +2639,16 @@ the CWD is changed whenever the tree root is changed. For example, if the CWD
 is /home/marty/foobar and you make the node for /home/marty/foobar/baz the new
 root then the CWD will become /home/marty/foobar/baz.
 
+Note to windows users: it is highly recommended that you have this option set
+to either 1 or 2 or else the script wont function properly if you attempt to
+open a NERD tree on a different drive to the one vim is currently in.
+
 Authors note: at work i have this option set to 1 because i have a giant ctags
 file in the root dir of my project. This way i can initialise the NERD tree
 with the root dir of my project and always have ctags available to me --- no
 matter where i go with the NERD tree.
 
-Defaults to 0.
+Defaults to 1.
 
 ------------------------------------------------------------------------------
                                                               *NERDTreeIgnore*                
@@ -2738,8 +2806,9 @@ code i borrowed from.
 Thanks to Terrance Cohen for pointing out a bug where the script was changing
 vims CWD all over the show.
 
-Thanks to Yegappan Lakshmanan for telling me how to fix a bug that was causing
-vim to go into visual mode everytime you double clicked a node :)
+Thanks to Yegappan Lakshmanan (author of Taglist and other orgasmically
+wonderful plugins) for telling me how to fix a bug that was causing vim to go
+into visual mode everytime you double clicked a node :)
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2 fdc=4:
