@@ -1,16 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  19 jan 2007
+" Last Change:  22 jan 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.3'
-
-"now it deletes directories as well as files 
-"
-"the NERDTreeChDirMode option now defaults to 1 for windows users so if they
-"
-"open the nerd tree on another drive it will still work
-"
-"now the X mapping recursively closes a tree node (not just to one level like
-"b4)
+let s:NERD_tree_version = '1.3.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -678,6 +669,9 @@ function s:oPath.Create(fullpath) dict
 
         "if it ends with a slash, assume its a dir create it 
         if fullpath =~ '\/$'
+            "whack the trailing slash off the end if it exists 
+            let fullpath = substitute(fullpath, '\/$', '', '')
+
             call mkdir(fullpath, 'p')
 
         "assume its a file and create 
@@ -699,9 +693,19 @@ endfunction
 "Throws NERDTree.Path.Deletion exceptions
 function s:oPath.Delete() dict
     if self.isDirectory 
-        let success = system(g:NERDRemoveDirCmd . self.GetPathForOS(0))
+
+        let cmd = ""
+        if s:running_windows
+            "if we are runnnig windows then put quotes around the pathstring 
+            let cmd = g:NERDRemoveDirCmd . '"' . self.GetPathForOS(0) . '"'
+        else
+            let cmd = g:NERDRemoveDirCmd . self.GetPathForOS(0)
+        end
+        let success = system(cmd)
+
         if v:shell_error != 0
-            throw "NERDTree.Path.Deletion Exception: Could not delete directory: '" . self.GetPath(0) . "'"
+            throw g:NERDRemoveDirCmd . self.GetPathForOS(0)
+            throw "NERDTree.Path.Deletion Exception: Could not delete directory: '" . self.GetPathForOS(0) . "'"
         end
     else
         let success = delete(self.GetPath(0))
@@ -830,9 +834,9 @@ function s:oPath.GetPathForOS(esc) dict
 
     let toReturn = lead . join(self.pathSegments, s:os_slash)
 
-    if self.isDirectory && toReturn !~ escape(s:os_slash, '\/') . '$'
-        let toReturn  = toReturn . s:os_slash
-    endif
+    "if self.isDirectory && toReturn !~ escape(s:os_slash, '\/') . '$'
+        "let toReturn  = toReturn . s:os_slash
+    "endif
 
     if a:esc
         let toReturn = escape(toReturn, s:escape_chars)
@@ -1006,7 +1010,7 @@ function s:oPath.WinToUnixPath(pathstr) dict
     let toReturn = a:pathstr
 
     "remove the x:\ of the front
-    let toReturn = substitute(toReturn, '^.*:\\\?', '/', "")
+    let toReturn = substitute(toReturn, '^.*:\(\\\|/\)\?', '/', "")
 
     "convert all \ chars to / 
     let toReturn = substitute(toReturn, '\', '/', "g")
@@ -1674,7 +1678,7 @@ function! s:OpenNodeSplit(treenode)
     exec(there)
 
     if g:NERDTreeWinSize =~ '[0-9]\+' && winheight("") > g:NERDTreeWinSize
-        exec("silent vertical resize ".g:NERDTreeWinSize)
+		exec("silent vertical resize ".g:NERDTreeWinSize)
     endif
 
     normal 
@@ -1714,9 +1718,9 @@ function s:RenderView()
     let topLine = line("w0")
 
     "delete all lines in the buffer (being careful not to clobber a register)  
-	let save_y = @"
+    let save_y = @"
     silent! normal ggdG
-	let @" = save_y
+    let @" = save_y
 
     call s:DumpHelp()
 
@@ -2015,14 +2019,14 @@ function s:DeleteNode()
 
 
     if confirmed
-        try
+        "try
             call currentNode.path.Delete()
             call currentNode.parent.RemoveChild(currentNode)
             call s:RenderView()
             redraw
-        catch
-            echo "NERDTree: Could not remove node" 
-        endtry
+        "catch
+            "echo "NERDTree: Could not remove node" 
+        "endtry
     else
         echo "NERDTree: delete aborted" 
     endif
@@ -2791,7 +2795,8 @@ fridge for later.
 6. Credits {{{2 ~
 
 Thanks to Tim Carey-Smith for testing/using the NERD tree from the first
-pre-beta version, and for his many suggestions.
+pre-beta version, for his many suggestions and for his constant stream of bug
+complaints.
 
 Thanks to Vigil for trying it out before the first release :) and suggesting
 that mappings to open files in new tabs should be implemented.
@@ -2810,5 +2815,8 @@ Thanks to Yegappan Lakshmanan (author of Taglist and other orgasmically
 wonderful plugins) for telling me how to fix a bug that was causing vim to go
 into visual mode everytime you double clicked a node :)
 
+Thanks to Jason Mills for sending me a fix that allows windows paths to use
+forward slashes as well as backward.
+
 === END_DOC
-" vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2 fdc=4:
+" vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2:
