@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  22 jan 2007
+" Last Change:  27 feb 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.3.1'
+let s:NERD_tree_version = '1.4.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -35,6 +35,7 @@ function s:InitVariable(var, value)
 endfunction
 
 "SECTION: Init variable calls {{{2 
+call s:InitVariable("g:NERDChristmasTree", 1)
 call s:InitVariable("g:NERDTreeChDirMode", 1)
 if !exists("g:NERDTreeIgnore")
     let g:NERDTreeIgnore = ['\~$']
@@ -44,7 +45,7 @@ call s:InitVariable("g:NERDTreeShowFiles", 1)
 call s:InitVariable("g:NERDTreeSortDirs", 0)
 call s:InitVariable("g:NERDTreeSplitVertical", 1)
 call s:InitVariable("g:NERDTreeWinPos", 1)
-call s:InitVariable("g:NERDTreeWinSize", 30)
+call s:InitVariable("g:NERDTreeWinSize", 31)
 
 let s:running_windows = has("win16") || has("win32") || has("win64")
 
@@ -152,7 +153,7 @@ endfunction
 "Args:
 "treenode: the other treenode to compare to
 function s:oTreeNode.Equals(treenode) dict
-    return self.path.GetPath(1) == a:treenode.path.GetPath(1)
+    return self.path.Str(1) == a:treenode.path.Str(1)
 endfunction
 
 "FUNCTION: oTreeNode.FindNode(path) {{{3 
@@ -164,7 +165,7 @@ function s:oTreeNode.FindNode(path) dict
     if a:path.Equals(self.path)
         return self
     endif
-    if stridx(a:path.GetPath(1), self.path.GetPath(1), 0) == -1
+    if stridx(a:path.Str(1), self.path.Str(1), 0) == -1
         return {}
     endif
 
@@ -189,26 +190,30 @@ endfunction
 "Return:
 "a treenode object or {} if no sibling could be found
 function s:oTreeNode.FindSibling(direction) dict
-    "get the index of this node in its parents children 
-    let siblingIndx = self.parent.GetChildIndex(self.path)
+    "if we have no parent then we can have no siblings 
+    if self.parent != {}
 
-    if siblingIndx != -1
-        "move a long to the next potential sibling node 
-        let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
+        "get the index of this node in its parents children 
+        let siblingIndx = self.parent.GetChildIndex(self.path)
 
-        "keep moving along to the next sibling till we find one that is valid 
-        let numSiblings = len(self.parent.children)
-        while siblingIndx >= 0 && siblingIndx < numSiblings
-
-            "if the next node is not an ignored node (i.e. wont show up in the
-            "view) then return it
-            if self.parent.children[siblingIndx].path.Ignore() == 0
-                return self.parent.children[siblingIndx]
-            endif
-
-            "go to next node 
+        if siblingIndx != -1
+            "move a long to the next potential sibling node 
             let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
-        endwhile
+
+            "keep moving along to the next sibling till we find one that is valid 
+            let numSiblings = len(self.parent.children)
+            while siblingIndx >= 0 && siblingIndx < numSiblings
+
+                "if the next node is not an ignored node (i.e. wont show up in the
+                "view) then return it
+                if self.parent.children[siblingIndx].path.Ignore() == 0
+                    return self.parent.children[siblingIndx]
+                endif
+
+                "go to next node 
+                let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
+            endwhile
+        endif
     endif
 
     return {}
@@ -279,17 +284,6 @@ function s:oTreeNode.GetChildrenToDisplay() dict
     return toReturn
 endfunction
 
-"FUNCTION: oTreeNode.GetDisplayString() {{{3 
-"
-"Returns a string that specifies how the node should be represented as a
-"string
-"
-"Return:
-"a string that can be used in the view to represent this node
-function s:oTreeNode.GetDisplayString() dict
-    return self.path.GetDisplayString()
-endfunction
-
 "FUNCTION: oTreeNode.GetChild(path) {{{3 
 "Returns child node of this node that has the given path or {} if no such node
 "exists.
@@ -302,7 +296,7 @@ function s:oTreeNode.GetChild(path) dict
     if self.path.isDirectory != 1
         throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.GetChild() on a file node"
     endif
-    if stridx(a:path.GetPath(1), self.path.GetPath(1), 0) == -1
+    if stridx(a:path.Str(1), self.path.Str(1), 0) == -1
         return {}
     endif
 
@@ -327,7 +321,7 @@ function s:oTreeNode.GetChildIndex(path) dict
     if self.path.isDirectory != 1
         throw "NERDTree.IllegalOperation Exception: Cannot perform oTreeNode.GetChild() on a file node"
     endif
-    if stridx(a:path.GetPath(1), self.path.GetPath(1), 0) == -1
+    if stridx(a:path.Str(1), self.path.Str(1), 0) == -1
         return -1
     endif
 
@@ -551,6 +545,17 @@ function s:oTreeNode.SortChildren() dict
     call sort(self.children, CompareFunc)
 endfunction
 
+"FUNCTION: oTreeNode.StrDisplay() {{{3 
+"
+"Returns a string that specifies how the node should be represented as a
+"string
+"
+"Return:
+"a string that can be used in the view to represent this node
+function s:oTreeNode.StrDisplay() dict
+    return self.path.StrDisplay()
+endfunction
+
 "FUNCTION: oTreeNode.ToggleOpen {{{3 
 "Assumes this node is a directory node.
 "
@@ -587,13 +592,14 @@ endfunction
 "CLASS: oPath {{{2
 "============================================================
 let s:oPath = {} 
-let oPath = s:oPath
 
+"init the class level delete dir command 
+let s:oPath['removeDirCmd'] = g:NERDRemoveDirCmd
 "FUNCTION: oPath.ChangeToDir() {{{3 
 function s:oPath.ChangeToDir() dict
-    let dir = self.GetPath(1)
+    let dir = self.Str(1)
     if self.isDirectory == 0
-        let dir = escape(self.GetPathTrunk(), s:escape_chars)
+        let dir = self.GetPathTrunk().Str(1)
     endif
 
     try
@@ -602,6 +608,15 @@ function s:oPath.ChangeToDir() dict
     catch
         throw "NERDTree.Path.Change exception: cannot change to " . dir
     endtry
+endfunction
+
+"FUNCTION: oPath.ChopTrailingSlash(str) {{{3 
+function s:oPath.ChopTrailingSlash(str) dict
+    if a:str =~ '\/$'
+        return substitute(a:str, "\/$", "", "")
+    else
+        return substitute(a:str, "\\$", "", "")
+    endif
 endfunction
 
 "FUNCTION: oPath.CompareTo() {{{3 
@@ -622,8 +637,8 @@ endfunction
 "Return:
 "1, -1 or 0
 function s:oPath.CompareTo(path, dirPriority) dict
-    let thisPath = self.GetPath(0)
-    let thatPath = a:path.GetPath(0)
+    let thisPath = self.Str(0)
+    let thatPath = a:path.Str(0)
 
     if self.isDirectory == a:path.isDirectory || a:dirPriority == 0
         if thisPath == thatPath
@@ -685,6 +700,43 @@ function s:oPath.Create(fullpath) dict
     return s:oPath.New(fullpath)
 endfunction
 
+"FUNCTION: oPath.CreateAbstract() {{{3 
+"
+"Factory method.
+"
+"Creates a path object with the given path. The path is not created on the
+"filesystem and need not exist.
+"
+"Args:
+"fullpath: the full path to the abstract file
+function s:oPath.CreateAbstract(fullpath) dict
+
+    "get the unix version of the input path 
+    let fullpath = a:fullpath
+    if s:running_windows
+        let fullpath = s:oPath.WinToUnixPath(fullpath)
+    endif
+
+    try 
+
+        "if it ends with a slash, assume its a dir create it 
+        if fullpath =~ '\/$'
+            "whack the trailing slash off the end if it exists 
+            let fullpath = substitute(fullpath, '\/$', '', '')
+
+            call mkdir(fullpath, 'p')
+
+        "assume its a file and create 
+        else
+            call writefile([], fullpath)
+        endif
+    catch /.*/
+        throw "NERDTree.Path Exception: Could not create path: '" . a:fullpath . "'"
+    endtry
+
+    return s:oPath.New(fullpath)
+endfunction
+
 "FUNCTION: oPath.Delete() {{{3 
 "
 "Deletes the file represented by this path.
@@ -697,32 +749,21 @@ function s:oPath.Delete() dict
         let cmd = ""
         if s:running_windows
             "if we are runnnig windows then put quotes around the pathstring 
-            let cmd = g:NERDRemoveDirCmd . '"' . self.GetPathForOS(0) . '"'
+            let cmd = self.removeDirCmd . '"' . self.StrForOS(0) . '"'
         else
-            let cmd = g:NERDRemoveDirCmd . self.GetPathForOS(0)
+            let cmd = self.removeDirCmd . self.StrForOS(0)
         end
         let success = system(cmd)
 
         if v:shell_error != 0
-            throw g:NERDRemoveDirCmd . self.GetPathForOS(0)
-            throw "NERDTree.Path.Deletion Exception: Could not delete directory: '" . self.GetPathForOS(0) . "'"
+            throw "NERDTree.Path.Deletion Exception: Could not delete directory: '" . self.StrForOS(0) . "'"
         end
     else
-        let success = delete(self.GetPath(0))
+        let success = delete(self.Str(0))
         if success != 0
-            throw "NERDTree.Path.Deletion Exception: Could not delete file: '" . self.GetPath(0) . "'"
+            throw "NERDTree.Path.Deletion Exception: Could not delete file: '" . self.Str(0) . "'"
         endif
     endif
-endfunction
-
-"FUNCTION: oPath.GetAbsPath() {{{3 
-"
-"Returns a string representing this path with all the symlinks resolved
-"
-"Return:
-"string
-function s:oPath.GetAbsPath() dict
-    return resolve(self.GetPath(1))
 endfunction
 
 "FUNCTION: oPath.GetDir() {{{3 
@@ -751,22 +792,6 @@ function s:oPath.GetDir(trailingSlash) dict
     return toReturn
 endfunction
 
-"FUNCTION: oPath.GetDisplayString() {{{3 
-"
-"Returns a string that specifies how the path should be represented as a
-"string
-"
-"Return:
-"a string that can be used in the view to represent this path
-function s:oPath.GetDisplayString() dict
-    if self.isSymLink
-        return self.GetLastPathComponent(1) . ' -> ' . self.symLinkDest
-    elseif self.isReadOnly
-        return self.GetLastPathComponent(1) . s:tree_RO_str
-    else
-        return self.GetLastPathComponent(1) 
-    endif
-endfunction
 "FUNCTION: oPath.GetFile() {{{3 
 "
 "Returns the file component of this path. 
@@ -798,56 +823,10 @@ function s:oPath.GetLastPathComponent(dirSlash) dict
     return toReturn
 endfunction
 
-"FUNCTION: oPath.GetPath(esc) {{{3 
-"
-"Gets the actual string path that this obj represents.
-"
-"Args:
-"esc: if 1 then all the tricky chars in the returned string will be escaped      
-function s:oPath.GetPath(esc) dict
-    let toReturn = '/' . join(self.pathSegments, '/')
-    if self.isDirectory && toReturn != '/'
-        let toReturn  = toReturn . '/'
-    endif
-
-    if a:esc
-        let toReturn = escape(toReturn, s:escape_chars)
-    endif
-    return toReturn
-endfunction
-
-"FUNCTION: oPath.GetPathForOS() {{{3 
-"
-"Gets the string path for this path object that is appropriate for the OS.
-"EG, in windows c:\foo\bar
-"    in *nix  /foo/bar
-"
-"Args:
-"esc: if 1 then all the tricky chars in the returned string will be escaped      
-function s:oPath.GetPathForOS(esc) dict
-    let lead = s:os_slash
-
-    "if we are running windows then slap a drive letter on the front 
-    if s:running_windows
-        let lead = strpart(getcwd(), 0, 2) . s:os_slash
-    end
-
-    let toReturn = lead . join(self.pathSegments, s:os_slash)
-
-    "if self.isDirectory && toReturn !~ escape(s:os_slash, '\/') . '$'
-        "let toReturn  = toReturn . s:os_slash
-    "endif
-
-    if a:esc
-        let toReturn = escape(toReturn, s:escape_chars)
-    endif
-    return toReturn
-endfunction
-
 "FUNCTION: oPath.GetPathTrunk() {{{3 
 "Gets the path without the last segment on the end.
 function s:oPath.GetPathTrunk() dict
-    return '/' . join(self.pathSegments[0:-2], '/')
+    return s:oPath.New('/' . join(self.pathSegments[0:-2], '/'))
 endfunction
 
 "FUNCTION: oPath.Ignore() {{{3 
@@ -884,7 +863,9 @@ endfunction
 "Args:
 "path: the other path obj to compare this with
 function s:oPath.Equals(path) dict
-    return self.GetPath(1) == a:path.GetPath(1)
+    let this = self.ChopTrailingSlash(self.Str(1))
+    let that = self.ChopTrailingSlash(a:path.Str(1))
+    return this == that
 endfunction
 
 "FUNCTION: oPath.New() {{{3 
@@ -928,11 +909,6 @@ function s:oPath.ReadInfoFromDisk(fullpath) dict
         let fullpath = s:oPath.WinToUnixPath(fullpath)
     endif
 
-    "if the path is a dir, make sure its got a / on the end 
-    "if isdirectory(fullpath) && fullpath !~ '\/$'
-        "let fullpath = fullpath . '/'
-    "endif
-
     let self.pathSegments = split(fullpath, '/')
 
     let self.isReadOnly = 0
@@ -948,10 +924,10 @@ function s:oPath.ReadInfoFromDisk(fullpath) dict
     "grab the last part of the path (minus the trailing slash) 
     let lastPathComponent = self.GetLastPathComponent(0)
 
-    ""get the path to the new node with the parent dir fully resolved 
-    let hardPath = resolve(self.GetPathTrunk()) . '/' . lastPathComponent
+    "get the path to the new node with the parent dir fully resolved 
+    let hardPath = resolve(self.StrTrunk()) . '/' . lastPathComponent
 
-    ""if  the last part of the path is a symlink then flag it as such 
+    "if  the last part of the path is a symlink then flag it as such 
     let self.isSymLink = (resolve(hardPath) != hardPath)
     if self.isSymLink
         let self.symLinkDest = resolve(fullpath)
@@ -971,32 +947,104 @@ endfunction
 
 "FUNCTION: oPath.Refresh() {{{3 
 function s:oPath.Refresh() dict
-    call self.ReadInfoFromDisk(self.GetPath(0))
+    call self.ReadInfoFromDisk(self.Str(0))
 endfunction
 
 "FUNCTION: oPath.Rename() {{{3 
 "
 "Renames this node on the filesystem
-"
-"Assumes this path is a file
 function s:oPath.Rename(newPath) dict
-    if self.isDirectory
-        throw "NERDTree.IllegalOperation Exception: cannot rename directories"
-    endif
-
     if a:newPath == ''
         throw "NERDTree.InvalidArguments exception. Invalid newPath for renaming = ". a:newPath
     endif
 
     try
-        let success =  rename(self.GetPath(0), escape(a:newPath, s:escape_chars))
+        let success =  rename(self.Str(0), a:newPath)
         if success != 0
-            throw "NERDTree.Path.Rename Exception: Could not rename: '" . self.GetPath(0) . "'"
+            throw "NERDTree.Path.Rename Exception: Could not rename: '" . self.Str(0) . "'"
         endif
         let self.pathSegments = split(a:newPath, '/')
     catch
-        throw "NERDTree.Path.Rename exception. Could not rename from:" . self.GetPath(0) . ' to: ' . a:newPath
+        throw "NERDTree.Path.Rename exception. Could not rename from:" . self.Str(0) . ' to: ' . a:newPath
     endtry
+endfunction
+
+"FUNCTION: oPath.Str(esc) {{{3 
+"
+"Gets the actual string path that this obj represents.
+"
+"Args:
+"esc: if 1 then all the tricky chars in the returned string will be escaped      
+function s:oPath.Str(esc) dict
+    let toReturn = '/' . join(self.pathSegments, '/')
+    if self.isDirectory && toReturn != '/'
+        let toReturn  = toReturn . '/'
+    endif
+
+    if a:esc
+        let toReturn = escape(toReturn, s:escape_chars)
+    endif
+    return toReturn
+endfunction
+
+"FUNCTION: oPath.StrAbs() {{{3 
+"
+"Returns a string representing this path with all the symlinks resolved
+"
+"Return:
+"string
+function s:oPath.StrAbs() dict
+    return resolve(self.Str(1))
+endfunction
+
+"FUNCTION: oPath.StrDisplay() {{{3 
+"
+"Returns a string that specifies how the path should be represented as a
+"string
+"
+"Return:
+"a string that can be used in the view to represent this path
+function s:oPath.StrDisplay() dict
+    if self.isSymLink
+        return self.GetLastPathComponent(1) . ' -> ' . self.symLinkDest
+    elseif self.isReadOnly
+        return self.GetLastPathComponent(1) . s:tree_RO_str
+    else
+        return self.GetLastPathComponent(1) 
+    endif
+endfunction
+"FUNCTION: oPath.StrForOS() {{{3 
+"
+"Gets the string path for this path object that is appropriate for the OS.
+"EG, in windows c:\foo\bar
+"    in *nix  /foo/bar
+"
+"Args:
+"esc: if 1 then all the tricky chars in the returned string will be escaped      
+function s:oPath.StrForOS(esc) dict
+    let lead = s:os_slash
+
+    "if we are running windows then slap a drive letter on the front 
+    if s:running_windows
+        let lead = strpart(getcwd(), 0, 2) . s:os_slash
+    end
+
+    let toReturn = lead . join(self.pathSegments, s:os_slash)
+
+    "if self.isDirectory && toReturn !~ escape(s:os_slash, '\/') . '$'
+        "let toReturn  = toReturn . s:os_slash
+    "endif
+
+    if a:esc
+        let toReturn = escape(toReturn, s:escape_chars)
+    endif
+    return toReturn
+endfunction
+
+"FUNCTION: oPath.StrTrunk() {{{3 
+"Gets the path without the last segment on the end.
+function s:oPath.StrTrunk() dict
+    return '/' . join(self.pathSegments[0:-2], '/')
 endfunction
 
 "FUNCTION: oPath.WinToUnixPath(pathstr){{{3
@@ -1253,34 +1301,7 @@ function s:CreateTreeWin()
 
     " syntax highlighting
     if has("syntax") && exists("g:syntax_on") && !has("syntax_items")
-        syn match treeHlp  #^" .*#
-
-        execute "syn match treePrt  #" . s:tree_vert      . "#"
-        execute "syn match treePrt  #" . s:tree_vert_last . "#"
-        execute "syn match treePrt  #" . s:tree_file      . "#"
-
-        syn match treeLnk       #[^-| `].* -> # 
-        syn match treeDir       #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk
-        syn match treeCWD       #^/.*$# 
-
-
-        execute "syn match treeUp #". s:tree_up_dir_line ."#"
-        syn match treeFlag #\[RO\]#
-        syn match treeRO #[0-9a-zA-Z]\+.*\[RO\]# contains=treeFlag
-        syn match treeOpenable #+\<#
-        syn match treeOpenable #\~\<#
-        syn match treeOpenable #\~\.#
-        syn match treeOpenable #+\.#
-
-        hi def link treePrt Normal
-        hi def link treeHlp Special
-        hi def link treeDir Directory
-        hi def link treeUp Directory
-        hi def link treeCWD Statement
-        hi def link treeLnk Title
-        hi def link treeOpenable Title
-        hi def link treeFlag ignore
-        hi def link treeRO WarningMsg
+        call s:SetupSyntaxHighlighting()
     endif
 
     " for line continuation
@@ -1337,7 +1358,7 @@ function s:DrawTree(curNode, depth, drawText, vertMap, isLastChild)
         else
             let treeParts = treeParts . s:tree_file
         endif
-        let line = treeParts . a:curNode.GetDisplayString()
+        let line = treeParts . a:curNode.StrDisplay()
 
         call setline(line(".")+1, line)
         call cursor(line(".")+1, col("."))
@@ -1363,62 +1384,68 @@ function s:DrawTree(curNode, depth, drawText, vertMap, isLastChild)
     endif
 endfunction
 
-"FUNCTION: s:DumpHelp {{{2 
+"FUNCTION: s:DumpHelp  {{{2
 "prints out the quick help 
 function s:DumpHelp()
     let old_h = @h
     if t:treeShowHelp == 1
-        let @h=   "\" NERD tree quick help\n"
-        let @h=@h."\" ==================================\n"
-        let @h=@h."\" Mappings for opening file nodes:\n"
-        let @h=@h."\" <ret>\n"
-        let @h=@h."\" double-click\n"
-        let @h=@h."\" o     = open selected file\n"
-        let @h=@h."\" t     = open in a new tab\n"
-        let @h=@h."\" T     = open in a new tab, stay in current tab\n"
-        let @h=@h."\" middle-click\n"
-        let @h=@h."\" <tab> = open in a new window\n"
+        let @h=   "\" NERD tree (" . s:NERD_tree_version . ") quickhelp~\n"
+        let @h=@h."\" ============================\n"
+        let @h=@h."\" File node mappings~\n"
+        let @h=@h."\" <CR>,\n"
+        let @h=@h."\" double-click,\n"
+        let @h=@h."\" o: open in prev window\n"
+        let @h=@h."\" t: open in new tab\n"
+        let @h=@h."\" T: open in new tab silently\n"
+        let @h=@h."\" middle-click,\n"
+        let @h=@h."\" <tab>: open in new window\n"
 
-        let @h=@h."\" \n\" ----------------------------------\n"
-        let @h=@h."\" Mappings for directory nodes:\n"
-        let @h=@h."\" <ret>\n"
-        let @h=@h."\" double-click\n"
-        let @h=@h."\" o     = expand/close selected directory\n"
-        let @h=@h."\" O     = recursively open selected directory\n"
-        let @h=@h."\" x     = close the current dir\n"
-        let @h=@h."\" X     = close all children of current node\n"
-        let @h=@h."\" middle-click\n"
-        let @h=@h."\" e     = Open file explorer on current dir\n"
-        let @h=@h."\" E     = Open file explorer in new window on current dir\n"
+        let @h=@h."\" \n\" ----------------------------\n"
+        let @h=@h."\" Directory node mappings~\n"
+        let @h=@h."\" <CR>,\n"
+        let @h=@h."\" double-click,\n"
+        let @h=@h."\" o: open/close node \n"
+        let @h=@h."\" O: recursively open node\n"
+        let @h=@h."\" x: close the current dir\n"
+        let @h=@h."\" X: close all child nodes of\n"
+        let @h=@h."\"    seleted node\n"
+        let @h=@h."\" middle-click,\n"
+        let @h=@h."\" e: Open netrw for selected\n"
+        let @h=@h."\"    node \n"
+        let @h=@h."\" E: Open netrw in new window\n"
+        let @h=@h."\"    for selected node\n"
 
-        let @h=@h."\" \n\" ----------------------------------\n"
-        let @h=@h."\" Tree navigation mappings:\n"
-        let @h=@h."\" p     = move cursor to parent directory\n"
-        let @h=@h."\" s     = move cursor to next sibling node\n"
-        let @h=@h."\" S     = move cursor to previous sibling node\n"
+        let @h=@h."\" \n\" ----------------------------\n"
+        let @h=@h."\" Tree navigation mappings~\n"
+        let @h=@h."\" p: jump to parent node\n"
+        let @h=@h."\" s: jump to next sibling node\n"
+        let @h=@h."\" S: jump to prev sibling node\n"
 
-        let @h=@h."\" \n\" ----------------------------------\n"
-        let @h=@h."\" Filesystem mappings:\n"
-        let @h=@h."\" C     = change tree root to selected dir node\n"
-        let @h=@h."\" cd    = change the CWD to selected node dir\n"
-        let @h=@h."\" u     = move up a dir\n"
-        let @h=@h."\" U     = move up a dir, leave old root open\n"
-        let @h=@h."\" r     = refresh cursor dir\n"
-        let @h=@h."\" R     = refresh current root\n"
-        let @h=@h."\" m     = Show filesystem menu\n"
+        let @h=@h."\" \n\" ----------------------------\n"
+        let @h=@h."\" Filesystem mappings~\n"
+        let @h=@h."\"  C: change tree root to the\n"
+        let @h=@h."\"     selected dir\n"
+        let @h=@h."\" cd: change the CWD to the\n"
+        let @h=@h."\"     selected dir\n"
+        let @h=@h."\"  u: move tree root up a dir\n"
+        let @h=@h."\"  U: move tree root up a dir\n"
+        let @h=@h."\"     but leave old root open\n"
+        let @h=@h."\"  r: refresh cursor dir\n"
+        let @h=@h."\"  R: refresh current root\n"
+        let @h=@h."\"  m: Show filesystem menu\n"
 
-        let @h=@h."\" \n\" ----------------------------------\n"
-        let @h=@h."\" Tree filtering mappings:\n"
-        let @h=@h."\" H     = toggle show hidden (currently: " .  (g:NERDTreeShowHidden ? "on" : "off") . ")\n"
-        let @h=@h."\" f     = toggle file filter (currently: " .  (t:NERDTreeIgnoreEnabled ? "on" : "off") . ")\n"
-        let @h=@h."\" F     = toggle show files (currently: " .  (g:NERDTreeShowFiles ? "on" : "off") . ")\n"
+        let @h=@h."\" \n\" ----------------------------\n"
+        let @h=@h."\" Tree filtering mappings~\n"
+        let @h=@h."\" H: toggle show hidden (" . (g:NERDTreeShowHidden ? "on" : "off") . ")\n"
+        let @h=@h."\" f: toggle file filters (" . (t:NERDTreeIgnoreEnabled ? "on" : "off") . ")\n"
+        let @h=@h."\" F: toggle show files (" . (g:NERDTreeShowFiles ? "on" : "off") . ")\n"
 
-        let @h=@h."\" \n\" ----------------------------------\n"
-        let @h=@h."\" Other mappings:\n"
-        let @h=@h."\" q     = Close the NERDTree window\n"
-        let @h=@h."\" ?     = toggle help\n"
+        let @h=@h."\" \n\" ----------------------------\n"
+        let @h=@h."\" Other mappings~\n"
+        let @h=@h."\" q: Close the NERDTree window\n"
+        let @h=@h."\" ?: toggle help\n"
     else
-        let @h="\" ? : toggle help\n"
+        let @h="\" Press ? for help\n"
     endif
 
     silent! put h
@@ -1440,11 +1467,11 @@ function s:FindNodeLineNumber(treenode)
     let totalLines = line("$")
 
     "the path components we have matched so far 
-    let pathcomponents = [substitute(t:currentRoot.path.GetPath(0), '/ *$', '', '')]
+    let pathcomponents = [substitute(t:currentRoot.path.Str(0), '/ *$', '', '')]
     "the index of the component we are searching for 
     let curPathComponent = 1
 
-    let fullpath = a:treenode.path.GetPath(0)
+    let fullpath = a:treenode.path.Str(0)
 
 
     let lnum = s:FindRootNodeLineNumber()
@@ -1567,8 +1594,8 @@ endfunction
 "FUNCTION: s:GetSelectedNode() {{{2 
 "gets the treenode that the cursor is currently over
 function! s:GetSelectedNode() 
-    let path = s:GetPath(line("."))
     try 
+        let path = s:GetPath(line("."))
         return t:currentRoot.FindNode(path)
     catch /.*/
         return {}
@@ -1672,7 +1699,7 @@ function! s:OpenNodeSplit(treenode)
     endif
 
     " Open the new window
-    exec("silent " . splitMode." sp " . a:treenode.path.GetPath(0))
+    exec("silent " . splitMode." sp " . a:treenode.path.Str(0))
 
     " resize the explorer window if it is larger than the requested size
     exec(there)
@@ -1733,7 +1760,7 @@ function s:RenderView()
     call cursor(line(".")+1, col("."))
 
     "draw the header line  
-    call setline(line(".")+1, t:currentRoot.path.GetPath(0))
+    call setline(line(".")+1, t:currentRoot.path.Str(0))
     call cursor(line(".")+1, col("."))
 
     "draw the tree 
@@ -1774,6 +1801,61 @@ function s:SaveScreenState()
     let t:NERDTreeOldTopLine = line("w0")
 endfunction
 
+"FUNCTION: s:SetupSyntaxHighlighting() {{{2 
+function s:SetupSyntaxHighlighting()
+    syn match treeHelpKey #" \{1,2\}[^ ]*:#hs=s+2,he=e-1
+    syn match treeHelpKey #" \{1,2\}[^ ]*,#hs=s+2,he=e-1
+    syn match treeFlag #\~#
+    syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag
+    syn match treeToggleOn #".*(on)#hs=e-2,he=e-1
+    syn match treeToggleOff #".*(off)#hs=e-3,he=e-1
+    syn match treeHelp  #^" .*# contains=treeHelpKey,treeHelpTitle,treeFlag,treeToggleOff,treeToggleOn
+
+
+    syn match treePart  #|#
+    syn match treePart  #`#
+    syn match treePartFile #[|`]-#hs=s+1 contains=treePart
+
+    syn match treeLnk #[^-| `].* -> # 
+    syn match treeDir #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk
+    syn match treeFile  #|-.*# contains=treeLnk,treePart,treeRO,treePartFile
+    syn match treeFile  #`-.*# contains=treeLnk,treePart,treeRO,treePartFile
+    syn match treeCWD #^/.*$# 
+
+    execute "syn match treeUp #". s:tree_up_dir_line ."#"
+    syn match treeFlag #\[RO\]#
+    syn match treeRO #[0-9a-zA-Z]\+.*\[RO\]# contains=treeFlag
+    syn match treeOpenable #+\<#
+    syn match treeOpenable #\~\<#
+    syn match treeOpenable #\~\.#
+    syn match treeOpenable #+\.#
+
+    hi def link treeHelp String
+    hi def link treeHelpKey Identifier
+    hi def link treeHelpTitle Macro
+    hi def link treeToggleOn Question
+    hi def link treeToggleOff WarningMsg
+
+
+    if g:NERDChristmasTree == 1
+        hi def link treePart Special
+        hi def link treePartFile Type
+        hi def link treeFile Macro
+    else
+        hi def link treePart Normal
+        hi def link treePartFile Normal
+        hi def link treeFile Normal
+    endif
+
+    hi def link treeFile Special
+    hi def link treeDir Directory
+    hi def link treeUp Directory
+    hi def link treeCWD Statement
+    hi def link treeLnk Title
+    hi def link treeOpenable Title
+    hi def link treeFlag ignore
+    hi def link treeRO WarningMsg
+endfunction
 "FUNCTION: s:StripMarkupFromLine(line){{{2
 "returns the given line with all the tree parts stripped off
 "
@@ -1852,7 +1934,7 @@ function s:ActivateNode()
             wincmd p
             call s:OpenFileNodeSplit(treenode)
         else
-            exec ("edit " . treenode.path.GetPath(0))
+            exec ("edit " . treenode.path.Str(0))
         endif
     endif
 endfunction
@@ -1950,7 +2032,7 @@ function s:ChRoot()
     
     "change dir to the dir of the new root if instructed to 
     if g:NERDTreeChDirMode == 2
-        exec "cd " . treenode.path.GetPath(0)
+        exec "cd " . treenode.path.Str(0)
     endif
 
 
@@ -1981,7 +2063,7 @@ endfunction
 function s:CloseCurrentDir() 
     let treenode = s:GetSelectedNode()
     let parent = treenode.parent
-    if parent.path.GetPath(0) == t:currentRoot.path.GetPath(0)
+    if parent.path.Str(0) == t:currentRoot.path.Str(0)
         echo "NERDTree: cannot close tree root"
     else
         call treenode.parent.Close()
@@ -2006,13 +2088,13 @@ function s:DeleteNode()
         let choice =input( "|NERDTree Node Deletor\n" .
                          \ "|==========================================================\n". 
                          \ "|STOP! To delete this entire directory, type 'yes'\n" . 
-                         \ "|" . currentNode.path.GetPathForOS(0) . ": ")
+                         \ "|" . currentNode.path.StrForOS(0) . ": ")
         let confirmed = choice == 'yes'
     else
         echo "|NERDTree Node Deletor\n" .
                          \ "|==========================================================\n". 
                          \ "|Are you sure you wish to delete the node:\n" . 
-                         \ "|" . currentNode.path.GetPathForOS(0) . " (yN):"
+                         \ "|" . currentNode.path.StrForOS(0) . " (yN):"
         let choice = nr2char(getchar())
         let confirmed = choice == 'y'
     end
@@ -2073,7 +2155,7 @@ function s:InsertNewNode()
     let newNodeName = input("|NERDTree Node Creator\n" .
                           \ "|==========================================================\n". 
                           \ "|Enter the dir/file name to be created. Dirs end with a '/'\n" . 
-                          \ "|", curDirNode.path.GetPath(0))
+                          \ "|", curDirNode.path.Str(0))
     
     if newNodeName == ''
         echo "NERDTree: Node Creation Aborted."
@@ -2083,7 +2165,7 @@ function s:InsertNewNode()
     try
         let newPath = s:oPath.Create(newNodeName)
 
-        let parentNode = t:currentRoot.FindNode(s:oPath.New(newPath.GetPathTrunk()))
+        let parentNode = t:currentRoot.FindNode(newPath.GetPathTrunk())
 
         if parentNode.isOpen == 1 || !empty(parentNode.children) 
             let newNode = s:oTreeNode.New(newPath, parentNode)
@@ -2141,7 +2223,7 @@ function! s:OpenEntryNewTab(stayCurrentTab)
     let treenode = s:GetSelectedNode()
     if treenode != {}
         let curTabNr = tabpagenr()
-        exec "tabedit " . treenode.path.GetPath(0)
+        exec "tabedit " . treenode.path.Str(0)
         if a:stayCurrentTab
             exec "tabnext " . curTabNr
         endif
@@ -2178,7 +2260,7 @@ function! s:OpenExplorer(split)
                 wincmd p
                 call s:OpenDirNodeSplit(treenode)
             else
-                exec ("edit " . treenode.path.GetPath(0))
+                exec ("edit " . treenode.path.Str(0))
             endif
         endif
     else
@@ -2223,7 +2305,7 @@ endfunction
 function! s:RefreshCurrent() 
     let treenode = s:GetSelectedNode()
     if treenode == {} 
-        echo "NERDTree: cannot refresh selected dir"
+        echo "NERDTree: Refresh failed. Try refreshing the parent of the current node"
         return
     endif
 
@@ -2241,23 +2323,18 @@ function! s:RefreshCurrent()
     echo "NERDTree: Refreshing node. This could take a while... FINISHED"
 endfunction
 " FUNCTION: s:RenameCurrent() {{{2
-" allows the user to rename the current file node
+" allows the user to rename the current node
 function! s:RenameCurrent() 
     let curNode = s:GetSelectedNode()
     if curNode == {}
-        echo "NERDTree: Put the cursor on a file node first" 
-        return
-    endif
-
-    if curNode.path.isDirectory == 1
-        echo "NERDTree: Renaming directories not supported"
+        echo "NERDTree: Put the cursor on a node first" 
         return
     endif
 
     let newNodePath = input("|NERDTree Node Renamer\n" .
                           \ "|==========================================================\n". 
-                          \ "|Enter the new path for the file:                          \n" . 
-                          \ "|", curNode.path.GetPath(0))
+                          \ "|Enter the new path for the node:                          \n" . 
+                          \ "|", curNode.path.Str(0))
     
     if newNodePath == ''
         echo "NERDTree: Node Renaming Aborted."
@@ -2268,10 +2345,9 @@ function! s:RenameCurrent()
 
     try
         call curNode.path.Rename(newNodePath)
-
         call curNode.parent.RemoveChild(curNode)
 
-        let parentPath = s:oPath.New(curNode.path.GetDir(0))
+        let parentPath = curNode.path.GetPathTrunk()
         let newParent = t:currentRoot.FindNode(parentPath)
 
         if newParent != {}
@@ -2353,7 +2429,7 @@ endfunction
 "re-rendered
 function! s:UpDir(keepState) 
 
-    let cwd = t:currentRoot.path.GetPath(0)
+    let cwd = t:currentRoot.path.Str(0)
     if cwd == "/" || cwd =~ '^[^/]..$'
         echo "NERDTree: already at top dir"
     else
@@ -2364,7 +2440,7 @@ function! s:UpDir(keepState)
         let oldRoot = t:currentRoot
 
         if empty(t:currentRoot.parent)
-            let path = s:oPath.New(t:currentRoot.path.GetPathTrunk())
+            let path = t:currentRoot.path.GetPathTrunk()
             let newRoot = s:oTreeNode.New(path, {})
             call newRoot.Open()
             call newRoot.TransplantChild(t:currentRoot)
@@ -2488,7 +2564,7 @@ When the cursor is in the NERD tree window the following mappings may be used:
 Key         Description~
 
 q           Closes the NERDTree window
-<ret>,
+<CR>,
 o           If the cursor is on a file, this file is opened in the previous
             window. If the cursor is on a directory, the directory node is
             expanded in the tree.
@@ -2560,9 +2636,9 @@ character, a directory is created, else a file is created. The new node is
 inserted as a child of the current node, or the current node's parent (if the
 current node is a file, not a dir)
 
-Deletion of file and directories.
+Deletion of files and directories.
 
-Renaming of file nodes.  
+Renaming of files and directories.
 
 To access the filesystem menu, put the cursor on a node and press 'm'.
 
@@ -2578,10 +2654,13 @@ To access the filesystem menu, put the cursor on a node and press 'm'.
 The script provides the following options that can customise the behaviour the
 NERD tree. These options should be set in your vimrc.
 
-|loaded_nerd_tree|              Turns off the script
+|loaded_nerd_tree|              Turns off the script.
+
+|NERDChristmasTree|             Tells the NERD tree to make itself colourful
+                                and pretty .
 
 |NERDTreeChDirMode|             Tells the NERD tree if/when it should change
-                                vim's current working directory 
+                                vim's current working directory.
 
 |NERDTreeIgnore|                Tells the NERD tree which files to ignore.
 
@@ -2612,6 +2691,14 @@ NERD tree. These options should be set in your vimrc.
 
 To enable any of the below options you should put the given line in your 
 ~/.vimrc
+
+                                                           *NERDChristmasTree*
+If this option is set to 1 then some extra syntax highlighting elements are
+added to the nerd tree to make it more colourful.
+
+Set it to 0 for a more vanilla looking tree.
+
+Defaults to 1.
 
                                                             *loaded_nerd_tree*              
 If this plugin is making you feel homicidal, it may be a good idea to turn it
@@ -2780,10 +2867,10 @@ mapping)
 5. The Author {{{2 ~
 
 The author of the NERD tree is a terrible terrible monster called Martyzilla
-who gobbles up small children with milk and sugar for breakfast. He has an
-odd love/hate relationship with computers (but monsters hate everything by
-nature you know...) which can be awkward for him since he is a professional
-computer nerd for a living.
+who gobbles up small children with milk and sugar for breakfast. He has an odd
+love/hate relationship with computers (but monsters hate everything by nature
+you know...) which can be awkward for him since he is a pro computer nerd for
+a living.
 
 He can be reached at martin_grenfell at msn.com. He would love to hear from
 you, so feel free to send him suggestions and/or comments about this plugin.
@@ -2805,8 +2892,8 @@ Thanks to Nick Brettell for testing, fixing my spelling and suggesting i put a
     .. (up a directory)
 line in the gui.
 
-Thanks to Thomas Scott Urban the author of the vtreeexplorer plugin whose gui
-code i borrowed from.
+Thanks to Thomas Scott Urban - the author of the vtreeexplorer plugin - whose
+gui code i borrowed from.
 
 Thanks to Terrance Cohen for pointing out a bug where the script was changing
 vims CWD all over the show.
@@ -2817,6 +2904,10 @@ into visual mode everytime you double clicked a node :)
 
 Thanks to Jason Mills for sending me a fix that allows windows paths to use
 forward slashes as well as backward.
+
+Thanks to Michael Geddes (frogonwheels on #vim at freenode) for giving me some
+tips about syntax highlighting when i was doing highlighting for the
+quickhelp.
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2:
