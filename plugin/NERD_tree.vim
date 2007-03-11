@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
 " Last Change:  27 feb 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.4.0'
+let s:NERD_tree_version = '1.4.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -1013,6 +1013,24 @@ function s:oPath.StrDisplay() dict
         return self.GetLastPathComponent(1) 
     endif
 endfunction
+
+"FUNCTION: oPath.StrForEditCmd() {{{3 
+"
+"Return: the string for this path that is suitable to be used with the :edit
+"command
+function s:oPath.StrForEditCmd() dict
+    let toReturn = '/' . join(self.pathSegments, '/')
+    if self.isDirectory && toReturn != '/'
+        let toReturn  = toReturn . '/'
+    endif
+
+    "only escape spaces for non windows OSs 
+    if s:running_windows == 0
+        let toReturn = escape(toReturn, ' ')
+    endif
+
+    return toReturn
+endfunction
 "FUNCTION: oPath.StrForOS() {{{3 
 "
 "Gets the string path for this path object that is appropriate for the OS.
@@ -1384,6 +1402,7 @@ function s:DrawTree(curNode, depth, drawText, vertMap, isLastChild)
     endif
 endfunction
 
+
 "FUNCTION: s:DumpHelp  {{{2
 "prints out the quick help 
 function s:DumpHelp()
@@ -1699,7 +1718,7 @@ function! s:OpenNodeSplit(treenode)
     endif
 
     " Open the new window
-    exec("silent " . splitMode." sp " . a:treenode.path.Str(0))
+    exec("silent " . splitMode." sp " . a:treenode.path.Str(1))
 
     " resize the explorer window if it is larger than the requested size
     exec(there)
@@ -1807,8 +1826,8 @@ function s:SetupSyntaxHighlighting()
     syn match treeHelpKey #" \{1,2\}[^ ]*,#hs=s+2,he=e-1
     syn match treeFlag #\~#
     syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag
-    syn match treeToggleOn #".*(on)#hs=e-2,he=e-1
-    syn match treeToggleOff #".*(off)#hs=e-3,he=e-1
+    syn match treeToggleOn #".*(on)#hs=e-2,he=e-1 contains=treeHelpKey
+    syn match treeToggleOff #".*(off)#hs=e-3,he=e-1 contains=treeHelpKey
     syn match treeHelp  #^" .*# contains=treeHelpKey,treeHelpTitle,treeFlag,treeToggleOff,treeToggleOn
 
 
@@ -1934,7 +1953,7 @@ function s:ActivateNode()
             wincmd p
             call s:OpenFileNodeSplit(treenode)
         else
-            exec ("edit " . treenode.path.Str(0))
+            exec ("edit " . treenode.path.Str(1))
         endif
     endif
 endfunction
@@ -2032,7 +2051,7 @@ function s:ChRoot()
     
     "change dir to the dir of the new root if instructed to 
     if g:NERDTreeChDirMode == 2
-        exec "cd " . treenode.path.Str(0)
+        exec "cd " . treenode.path.StrForEditCmd()
     endif
 
 
@@ -2223,7 +2242,7 @@ function! s:OpenEntryNewTab(stayCurrentTab)
     let treenode = s:GetSelectedNode()
     if treenode != {}
         let curTabNr = tabpagenr()
-        exec "tabedit " . treenode.path.Str(0)
+        exec "tabedit " . treenode.path.StrForEditCmd()
         if a:stayCurrentTab
             exec "tabnext " . curTabNr
         endif
@@ -2260,7 +2279,7 @@ function! s:OpenExplorer(split)
                 wincmd p
                 call s:OpenDirNodeSplit(treenode)
             else
-                exec ("edit " . treenode.path.Str(0))
+                exec ("edit " . treenode.path.StrForEditCmd())
             endif
         endif
     else
