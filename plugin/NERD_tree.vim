@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  27 feb 2007
+" Last Change:  21 mar 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '1.4.1'
+let s:NERD_tree_version = '2.0.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -42,7 +42,21 @@ if !exists("g:NERDTreeIgnore")
 endif
 call s:InitVariable("g:NERDTreeShowHidden", 0)
 call s:InitVariable("g:NERDTreeShowFiles", 1)
-call s:InitVariable("g:NERDTreeSortDirs", 0)
+call s:InitVariable("g:NERDTreeSortDirs", 1)
+
+if !exists("g:NERDTreeSortOrder")
+    let g:NERDTreeSortOrder = ['\/$', '*', '\.swp$',  '\.bak$', '\~$']
+else
+    "if there isnt a * in the sort sequence then add one 
+    if count(g:NERDTreeSortOrder, '*') < 1
+        call add(g:NERDTreeSortOrder, '*')
+    endif
+endif
+
+"we need to use this number many times for sorting... so we calculate it only
+"once here 
+let g:NERDTreeSortStarIndex = index(g:NERDTreeSortOrder, '*')
+
 call s:InitVariable("g:NERDTreeSplitVertical", 1)
 call s:InitVariable("g:NERDTreeWinPos", 1)
 call s:InitVariable("g:NERDTreeWinSize", 31)
@@ -108,7 +122,7 @@ let s:oTreeNode = {}
 "Args:
 "n1, n2: the 2 nodes to compare
 function s:CompareNodes(n1, n2)
-    return a:n1.path.CompareTo(a:n2.path, g:NERDTreeSortDirs)
+    return a:n1.path.CompareTo(a:n2.path)
 endfunction
 
 "FUNCTION: oTreeNode.Close {{{3 
@@ -330,7 +344,7 @@ function s:oTreeNode.GetChildIndex(path) dict
     let z = len(self.children)
     while a < z
         let mid = (a+z)/2
-        let diff = a:path.CompareTo(self.children[mid].path, g:NERDTreeSortDirs)
+        let diff = a:path.CompareTo(self.children[mid].path)
 
         if diff == -1
             let z = mid
@@ -631,28 +645,33 @@ endfunction
 "Args:
 "path: the path object to compare this to
 "
-"dirPriority: -1 if directories have lower priority than files, 1 if they have
-"higher priority, 0 if the same.
-"
 "Return:
 "1, -1 or 0
-function s:oPath.CompareTo(path, dirPriority) dict
-    let thisPath = self.Str(0)
-    let thatPath = a:path.Str(0)
+function s:oPath.CompareTo(path) dict
+    let thisSS = self.GetSortOrderIndex()
+    let thatSS = a:path.GetSortOrderIndex()
 
-    if self.isDirectory == a:path.isDirectory || a:dirPriority == 0
-        if thisPath == thatPath
-            return 0
-        elseif thisPath < thatPath
+    let thisPath = self.GetLastPathComponent(1)
+    let thatPath = a:path.GetLastPathComponent(1)
+
+    "if the paths are the same then clearly we return 0 
+    if thisPath == thatPath
+        return 0
+    endif
+    
+    "compare the sort sequences, if they are different then the return
+    "value is easy 
+    if thisSS < thatSS
+        return -1
+    elseif thisSS > thatSS 
+        return 1
+    else
+        "if the sort sequences are teh same then compare the paths
+        "alphabetically 
+        if thisPath < thatPath
             return -1
         else
             return 1
-        endif
-    else
-        if a:dirPriority == 1
-            return (self.isDirectory == 0 ? 1 : -1)
-        elseif a:dirPriority == -1
-            return (self.isDirectory == 0 ? -1 : 1)
         endif
     endif
 endfunction
@@ -827,6 +846,19 @@ endfunction
 "Gets the path without the last segment on the end.
 function s:oPath.GetPathTrunk() dict
     return s:oPath.New('/' . join(self.pathSegments[0:-2], '/'))
+endfunction
+
+"FUNCTION: oPath.GetSortOrderIndex() {{{3 
+"returns the index of the pattern in g:NERDTreeSortOrder that this path matches 
+function s:oPath.GetSortOrderIndex() dict
+    let i = 0
+    while i < len(g:NERDTreeSortOrder)
+        if  self.GetLastPathComponent(1) =~ g:NERDTreeSortOrder[i]
+            return i
+        endif
+        let i = i + 1
+    endwhile
+    return g:NERDTreeSortStarIndex
 endfunction
 
 "FUNCTION: oPath.Ignore() {{{3 
@@ -1031,7 +1063,7 @@ function s:oPath.StrForEditCmd() dict
 
     return toReturn
 endfunction
-"FUNCTION: oPath.StrForOS() {{{3 
+"FUNCTION: oPath.StrForOS(esc) {{{3 
 "
 "Gets the string path for this path object that is appropriate for the OS.
 "EG, in windows c:\foo\bar
@@ -1134,16 +1166,16 @@ function s:InitNerdTree(dir)
     let t:treeShowHelp = 0
     let t:NERDTreeIgnoreEnabled = 1
 
-    if exists("t:currentRoot")
+    if exists("t:NERDTreeRoot")
         if s:GetTreeWinNum() != -1
             call s:CloseTree()
         endif
-        unlet t:currentRoot
+        unlet t:NERDTreeRoot
     endif
 
     let path = s:oPath.New(dir)
-    let t:currentRoot = s:oTreeNode.New(path, {})
-    call t:currentRoot.Open()
+    let t:NERDTreeRoot = s:oTreeNode.New(path, {})
+    call t:NERDTreeRoot.Open()
 
     call s:CreateTreeWin()
 
@@ -1308,7 +1340,7 @@ function s:CreateTreeWin()
 
     " throwaway buffer options
     setlocal noswapfile
-    setlocal buftype=nowrite
+    setlocal buftype=nofile
     setlocal bufhidden=delete 
     setlocal nowrap
     setlocal foldcolumn=0
@@ -1417,7 +1449,9 @@ function s:DumpHelp()
         let @h=@h."\" t: open in new tab\n"
         let @h=@h."\" T: open in new tab silently\n"
         let @h=@h."\" middle-click,\n"
-        let @h=@h."\" <tab>: open in new window\n"
+        let @h=@h."\" <tab>,\n"
+        let @h=@h."\" i: open in new window\n"
+        let @h=@h."\" !: Execute file\n"
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Directory node mappings~\n"
@@ -1479,14 +1513,14 @@ endfunction
 "treenode: the node to find the line no. for
 function s:FindNodeLineNumber(treenode) 
     "if the node is the root then return the root line no. 
-    if t:currentRoot.Equals(a:treenode)
+    if t:NERDTreeRoot.Equals(a:treenode)
         return s:FindRootNodeLineNumber()
     endif
 
     let totalLines = line("$")
 
     "the path components we have matched so far 
-    let pathcomponents = [substitute(t:currentRoot.path.Str(0), '/ *$', '', '')]
+    let pathcomponents = [substitute(t:NERDTreeRoot.path.Str(0), '/ *$', '', '')]
     "the index of the component we are searching for 
     let curPathComponent = 1
 
@@ -1549,7 +1583,7 @@ function! s:GetPath(ln)
 
     "check to see if we have the root node 
     if line =~ '^\/'
-        return t:currentRoot.path
+        return t:NERDTreeRoot.path
     endif
 
     " in case called from outside the tree
@@ -1558,7 +1592,7 @@ function! s:GetPath(ln)
     endif
 
     if line == s:tree_up_dir_line
-        return s:oPath.New( t:currentRoot.path.GetDir(0) )
+        return s:oPath.New( t:NERDTreeRoot.path.GetDir(0) )
     endif
 
     "get the indent level for the file (i.e. how deep in the tree it is) 
@@ -1615,7 +1649,7 @@ endfunction
 function! s:GetSelectedNode() 
     try 
         let path = s:GetPath(line("."))
-        return t:currentRoot.FindNode(path)
+        return t:NERDTreeRoot.FindNode(path)
     catch /.*/
         return {}
     endtry
@@ -1740,9 +1774,13 @@ endfunction
 "
 "Args:
 "treenode: the node to put the cursor on
-function s:PutCursorOnNode(treenode) 
+"is_jump: 1 if this cursor movement should be counted as a jump by vim
+function s:PutCursorOnNode(treenode, is_jump) 
     let ln = s:FindNodeLineNumber(a:treenode)
     if ln != -1
+        if a:is_jump
+            mark '
+        endif
         call cursor(ln, col("."))
     endif
 endfunction
@@ -1779,11 +1817,11 @@ function s:RenderView()
     call cursor(line(".")+1, col("."))
 
     "draw the header line  
-    call setline(line(".")+1, t:currentRoot.path.Str(0))
+    call setline(line(".")+1, t:NERDTreeRoot.path.Str(0))
     call cursor(line(".")+1, col("."))
 
     "draw the tree 
-    call s:DrawTree(t:currentRoot, 0, 0, [], len(t:currentRoot.children) == 1)
+    call s:DrawTree(t:NERDTreeRoot, 0, 0, [], len(t:NERDTreeRoot.children) == 1)
 
     "restore the view 
     call cursor(topLine, 1)
@@ -1825,7 +1863,7 @@ function s:SetupSyntaxHighlighting()
     syn match treeHelpKey #" \{1,2\}[^ ]*:#hs=s+2,he=e-1
     syn match treeHelpKey #" \{1,2\}[^ ]*,#hs=s+2,he=e-1
     syn match treeFlag #\~#
-    syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag
+    syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag,ErrorMsg,DiffChange,DiffAdd,Search
     syn match treeToggleOn #".*(on)#hs=e-2,he=e-1 contains=treeHelpKey
     syn match treeToggleOff #".*(off)#hs=e-3,he=e-1 contains=treeHelpKey
     syn match treeHelp  #^" .*# contains=treeHelpKey,treeHelpTitle,treeFlag,treeToggleOff,treeToggleOn
@@ -1836,7 +1874,8 @@ function s:SetupSyntaxHighlighting()
     syn match treePartFile #[|`]-#hs=s+1 contains=treePart
 
     syn match treeLnk #[^-| `].* -> # 
-    syn match treeDir #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk
+    syn match treeDir #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk,treeDirSlash
+    syn match treeDirSlash #/#
     syn match treeFile  #|-.*# contains=treeLnk,treePart,treeRO,treePartFile
     syn match treeFile  #`-.*# contains=treeLnk,treePart,treeRO,treePartFile
     syn match treeCWD #^/.*$# 
@@ -1844,9 +1883,9 @@ function s:SetupSyntaxHighlighting()
     execute "syn match treeUp #". s:tree_up_dir_line ."#"
     syn match treeFlag #\[RO\]#
     syn match treeRO #[0-9a-zA-Z]\+.*\[RO\]# contains=treeFlag
+    syn match treeClosable #\~\<#
+    syn match treeClosable #\~\.#
     syn match treeOpenable #+\<#
-    syn match treeOpenable #\~\<#
-    syn match treeOpenable #\~\.#
     syn match treeOpenable #+\.#
 
     hi def link treeHelp String
@@ -1860,13 +1899,15 @@ function s:SetupSyntaxHighlighting()
         hi def link treePart Special
         hi def link treePartFile Type
         hi def link treeFile Macro
+        hi def link treeDirSlash Identifier
+        hi def link treeClosable Type
     else
         hi def link treePart Normal
         hi def link treePartFile Normal
         hi def link treeFile Normal
+        hi def link treeClosable Title
     endif
 
-    hi def link treeFile Special
     hi def link treeDir Directory
     hi def link treeUp Directory
     hi def link treeCWD Statement
@@ -1914,7 +1955,7 @@ endfunction
 "dir: the full path for the root node (is only used if the NERD tree is being
 "initialized.
 function s:Toggle(dir)
-    if exists("t:currentRoot")
+    if exists("t:NERDTreeRoot")
         if s:GetTreeWinNum() == -1
             call s:CreateTreeWin()
             call s:RenderView()
@@ -1945,7 +1986,7 @@ function s:ActivateNode()
     if treenode.path.isDirectory
         call treenode.ToggleOpen()
         call s:RenderView()
-        call s:PutCursorOnNode(treenode)
+        call s:PutCursorOnNode(treenode, 0)
     else
         let oldwin = winnr()
         wincmd p
@@ -1963,10 +2004,13 @@ function s:BindMappings()
     " set up mappings and commands for this buffer
     nnoremap <silent> <buffer> <cr> :call <SID>ActivateNode()<cr>
     nnoremap <silent> <buffer> o :call <SID>ActivateNode()<cr>
+    nnoremap <silent> <buffer> i :call <SID>OpenEntrySplit()<cr>
     nnoremap <silent> <buffer> <tab> :call <SID>OpenEntrySplit()<cr>
     nnoremap <silent> <buffer> <2-leftmouse> :call <SID>ActivateNode()<cr> 
     nnoremap <silent> <buffer> <middlerelease> :call <SID>HandleMiddleMouse()<cr>
     nnoremap <silent> <buffer> <leftrelease> <leftrelease>:call <SID>CheckForActivate()<cr>
+
+    nnoremap <silent> <buffer> ! :call <SID>PrepareToExec()<cr>
 
     nnoremap <silent> <buffer> O :call <SID>OpenNodeRecursively()<cr>
 
@@ -2047,7 +2091,7 @@ function s:ChRoot()
         call treenode.Open()
     endif
 
-    let t:currentRoot = treenode
+    let t:NERDTreeRoot = treenode
     
     "change dir to the dir of the new root if instructed to 
     if g:NERDTreeChDirMode == 2
@@ -2056,7 +2100,7 @@ function s:ChRoot()
 
 
     call s:RenderView()
-    call s:PutCursorOnNode(t:currentRoot)
+    call s:PutCursorOnNode(t:NERDTreeRoot, 0)
 endfunction
 
 " FUNCTION: s:CloseChildren() {{{2
@@ -2072,7 +2116,7 @@ function s:CloseChildren()
     else
         call currentNode.CloseChildren()
         call s:RenderView()
-        call s:PutCursorOnNode(currentNode)
+        call s:PutCursorOnNode(currentNode, 0)
     endif
 
 
@@ -2082,12 +2126,12 @@ endfunction
 function s:CloseCurrentDir() 
     let treenode = s:GetSelectedNode()
     let parent = treenode.parent
-    if parent.path.Str(0) == t:currentRoot.path.Str(0)
+    if parent.path.Str(0) == t:NERDTreeRoot.path.Str(0)
         echo "NERDTree: cannot close tree root"
     else
         call treenode.parent.Close()
         call s:RenderView()
-        call s:PutCursorOnNode(treenode.parent)
+        call s:PutCursorOnNode(treenode.parent, 0)
     endif
 endfunction
 
@@ -2184,7 +2228,7 @@ function s:InsertNewNode()
     try
         let newPath = s:oPath.Create(newNodeName)
 
-        let parentNode = t:currentRoot.FindNode(newPath.GetPathTrunk())
+        let parentNode = t:NERDTreeRoot.FindNode(newPath.GetPathTrunk())
 
         if parentNode.isOpen == 1 || !empty(parentNode.children) 
             let newNode = s:oTreeNode.New(newPath, parentNode)
@@ -2202,7 +2246,7 @@ function s:JumpToParent()
     let currentNode = s:GetSelectedNode()
     if !empty(currentNode)
         if !empty(currentNode.parent) 
-            call s:PutCursorOnNode(currentNode.parent)
+            call s:PutCursorOnNode(currentNode.parent, 1)
         else
             echo "NERDTree: cannot jump to parent"
         endif
@@ -2222,7 +2266,7 @@ function s:JumpToSibling(forward)
     if !empty(currentNode)
         let sibling = currentNode.FindSibling(a:forward)
         if !empty(sibling)
-            call s:PutCursorOnNode(sibling)
+            call s:PutCursorOnNode(sibling, 1)
         else
             echo "NERDTree: no sibling found"
         endif
@@ -2308,12 +2352,33 @@ function! s:OpenNodeRecursively()
     
 endfunction
 
+" FUNCTION: s:PrepareToExec() {{{2
+function s:PrepareToExec()
+    let treenode = s:GetSelectedNode()
+    if treenode == {} || treenode.path.isDirectory
+        echo "NERDTree: Select an executable file node first" 
+    else
+        echo "|NERDTree executor\n" .
+           \ "|==========================================================\n". 
+           \ "|Complete the command to execute (add arguments etc): \n\n"
+        let cmd = treenode.path.StrForOS(1) 
+        let cmd = input(':!', cmd . ' ')
+
+        if cmd != ''
+            exec ':!' . cmd
+        else
+            echo "NERDTree: command aborted"
+        endif
+    endif
+
+endfunction
+
 " FUNCTION: s:RefreshRoot() {{{2
 " Reloads the current root. All nodes below this will be lost and the root dir
 " will be reloaded.
 function! s:RefreshRoot() 
     echo "NERDTree: Refreshing the root node. This could take a while..."
-    call t:currentRoot.Refresh()
+    call t:NERDTreeRoot.Refresh()
     call s:RenderView()
     redraw
     echo "NERDTree: Refreshing the root node. This could take a while... FINISHED"
@@ -2329,7 +2394,7 @@ function! s:RefreshCurrent()
     endif
 
     let curDir = treenode.path.GetDir(1)
-    let parentNode = t:currentRoot.FindNode( s:oPath.New(curDir) )
+    let parentNode = t:NERDTreeRoot.FindNode( s:oPath.New(curDir) )
     if parentNode == {}
         echo "NERDTree: cannot refresh selected dir"
         return
@@ -2367,7 +2432,7 @@ function! s:RenameCurrent()
         call curNode.parent.RemoveChild(curNode)
 
         let parentPath = curNode.path.GetPathTrunk()
-        let newParent = t:currentRoot.FindNode(parentPath)
+        let newParent = t:NERDTreeRoot.FindNode(parentPath)
 
         if newParent != {}
             let newNode = s:oTreeNode.New(curNode.path, newParent)
@@ -2419,7 +2484,7 @@ function s:ToggleShowFiles()
     let g:NERDTreeShowFiles = !g:NERDTreeShowFiles
 
     let currentDir = s:GetSelectedNode()
-    if currentDir != {} && currentDir.Equals(t:currentRoot) == 0
+    if currentDir != {} && currentDir.Equals(t:NERDTreeRoot) == 0
         if currentDir.path.isDirectory == 0
             let currentDir = currentDir.parent
         endif
@@ -2428,7 +2493,7 @@ function s:ToggleShowFiles()
     call s:RenderView()
 
     if currentDir != {}
-        call s:PutCursorOnNode(currentDir)
+        call s:PutCursorOnNode(currentDir, 0)
         normal zz
     endif
 endfunction
@@ -2448,29 +2513,29 @@ endfunction
 "re-rendered
 function! s:UpDir(keepState) 
 
-    let cwd = t:currentRoot.path.Str(0)
+    let cwd = t:NERDTreeRoot.path.Str(0)
     if cwd == "/" || cwd =~ '^[^/]..$'
         echo "NERDTree: already at top dir"
     else
         if !a:keepState
-            call t:currentRoot.Close()
+            call t:NERDTreeRoot.Close()
         endif
 
-        let oldRoot = t:currentRoot
+        let oldRoot = t:NERDTreeRoot
 
-        if empty(t:currentRoot.parent)
-            let path = t:currentRoot.path.GetPathTrunk()
+        if empty(t:NERDTreeRoot.parent)
+            let path = t:NERDTreeRoot.path.GetPathTrunk()
             let newRoot = s:oTreeNode.New(path, {})
             call newRoot.Open()
-            call newRoot.TransplantChild(t:currentRoot)
-            let t:currentRoot = newRoot
+            call newRoot.TransplantChild(t:NERDTreeRoot)
+            let t:NERDTreeRoot = newRoot
         else
-            let t:currentRoot = t:currentRoot.parent
+            let t:NERDTreeRoot = t:NERDTreeRoot.parent
 
         endif
 
         call s:RenderView()
-        call s:PutCursorOnNode(oldRoot)
+        call s:PutCursorOnNode(oldRoot, 0)
     endif
 
 endfunction
@@ -2506,7 +2571,8 @@ CONTENTS {{{2                                         *NERD_tree-contents*
         3.2 Customisation details.............|NERD_tree-cust-details|
     4.TODO list...............................|NERD_tree-todo|
     5.The Author..............................|NERD_tree-author|
-    6.Credits.................................|NERD_tree-credits|
+    6.Changelog...............................|NERD_tree-changelog|
+    7.Credits.................................|NERD_tree-credits|
 
 ==============================================================================
                                                                    *NERD_tree*
@@ -2541,6 +2607,7 @@ The following features and functionality are provided by the NERD tree:
     * A textual filesystem menu is provided which allows you to create new
       directory nodes and create/delete/rename file nodes
     * The position and size of the NERD tree window can be customised 
+    * The order in which the nodes in the tree are listed can be customised.
     * A model of your filesystem is created/maintained as you explore it. This
       has several advantages:
         * All filesystem information is cached and is only re-read on demand
@@ -2591,7 +2658,8 @@ O           Applies to dirs. Recursively opens the selected directory. This
             could take a while to complete so be prepared to go grab a cup of
             tea. Only opens dirs that aren't filtered out by file filters or the
             hidden files filter.
-<tab>       Only applies to files. Opens the selected file in a new split
+<tab>,
+i           Only applies to files. Opens the selected file in a new split
             window. 
 t           Opens the selected node in a new tab. If a dir is selected then an
             explorer for that dir will be opened.
@@ -2623,6 +2691,7 @@ e           If the cursor is on a directory node, this directory is opened in
             the previous window.
 E           Like 'e' except the file explorer is opened in a new split window.
 m           Displays the filesystem menu see |NERD_tree-filesys-menu|.
+!           Executes the current file node after prompting the user for args.
 ?           Toggles the display of the quick help at the top of the tree.
 
 The following mouse mappings are available:
@@ -2689,9 +2758,8 @@ NERD tree. These options should be set in your vimrc.
 |NERDTreeShowHidden|            Tells the NERD tree whether to display hidden
                                 files on startup.
 
-|NERDTreeSortDirs|              Tells the NERD tree how to position the
-                                directory/file nodes within their parent node. 
-
+|NERDTreeSortOrder|             Tell the NERD tree how to sort the nodes in
+                                the tree.
 
 |NERDTreeSplitVertical|         Tells the script whether the NERD tree should
                                 be created by splitting the window vertically
@@ -2766,8 +2834,7 @@ This option is used to specify which files the NERD tree should ignore.  It
 must be a list of regular expressions. When the NERD tree is rendered, any
 files/dirs that match any of the regex's in NERDTreeIgnore wont be displayed. 
 
-For example if you put the following line in your
-vimrc: >
+For example if you put the following line in your vimrc: >
     let NERDTreeIgnore=['.vim$', '\~$']
 <
 then all files ending in .vim or ~ will be ignored. 
@@ -2811,19 +2878,39 @@ Use one of the follow lines to set this option: >
 Defaults to 0.
 
 ------------------------------------------------------------------------------
-                                                            *NERDTreeSortDirs*
-This option is used to tell the NERD tree how to position file nodes and
-directory nodes within their parent. This option can take 3 values: >
-    let NERDTreeSortDirs=0
-    let NERDTreeSortDirs=1
-    let NERDTreeSortDirs=-1
-<
-If NERDTreeSortDirs is set to 0 then no distinction is made between file nodes
-and directory nodes and they are sorted alphabetically.
-If NERDTreeSortDirs is set to 1 then directories will appear above the files. 
-If NERDTreeSortDirs is set to -1 then directories will appear below the files. 
+                                                           *NERDTreeSortOrder*
 
-Defaults to 0.
+This option is set to a list of regular expressions which are used to
+specify the order of nodes under their parent.
+
+For example, if the option is set to: >
+    ['\.vim$', '\.c$', '\.h$', '*', 'foobar']
+<
+then all .vim files will be placed at the top, followed by all .c files then
+all .h files. All files containing the string 'foobar' will be placed at the
+end.  The star is a special flag: it tells the script that every node that
+doesnt match any of the other regexps should be placed here.
+
+If no star is present in NERDTreeSortOrder then one is automatically appended
+to the array.
+
+The regex '\/$' should be used to match directory nodes.
+
+After this sorting is done, the files in each group are sorted alphabetically.
+
+
+Other examples: >
+    (1) ['*', '\/$']
+    (2) []
+    (3) ['\/$', '\.rb$', '\.php$', '*', '\.swp$',  '\.bak$', '\~$']
+<
+1. Directories will appear last, everything else will appear above.
+2. Every will simply appear in alphabetical order.
+3. Dirs will appear first, then ruby and php. Swap files, bak files and vim
+   backup files will appear last with everything else preceding them.
+
+Defaults to ['\/$', '*', '\.swp$',  '\.bak$', '\~$']
+
 
 ------------------------------------------------------------------------------
                                                        *NERDTreeSplitVertical*
@@ -2873,13 +2960,10 @@ Defaults to 30.
 
 Window manager integration?
 
-make more extensive filesystem operations available
-
 make the mappings customisable?
 
-dynamic hiding of tree content (eg, if you dont want to see a particular
-directory for the rest of the current vim session, you can hide it with a
-mapping)
+make it highlight and be able to execute programs
+
 
 ==============================================================================
                                                             *NERD_tree-author*
@@ -2897,8 +2981,28 @@ Don't be shy --- the worst he can do is slaughter you and stuff you in the
 fridge for later.    
 
 ==============================================================================
-                                                           *NERD_tree-credits*
-6. Credits {{{2 ~
+                                                         *NERD_tree-changelog*
+6. Changelog {{{2 ~
+
+2.0.0
+    - Added two new NERDChristmasTree decorations. First person to spot them
+      and email me gets a free copy of the NERDTree.
+    - Made it so that when you jump around the tree (with the p, s and S
+      mappings) it is counted as a jump by vim. This means if you, eg, push
+      'p' one too many times then you can go `` or ctrl-o.
+    - Added a new option called NERDTreeSortOrder which takes an array of
+      regexs and is used to determine the order that the treenodes are listed
+      in. Go :help NERDTreeSortOrder for details.
+    - Removed the NERDTreeSortDirs option because it is consumed by
+      NERDTreeSortOrder
+    - Added the 'i' mapping which the same as <tab> but requires less effort to
+      reach.
+    - Added the ! mapping which is  used to execute file in the tree (after it
+      prompts you for arguments etc)
+
+
+==============================================================================
+7. Credits {{{2 ~
 
 Thanks to Tim Carey-Smith for testing/using the NERD tree from the first
 pre-beta version, for his many suggestions and for his constant stream of bug
