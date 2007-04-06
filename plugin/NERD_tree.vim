@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  28 mar 2007
+" Last Change:  7 april 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.1.0'
+let s:NERD_tree_version = '2.1.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -156,6 +156,13 @@ function! s:CompareNodes(n1, n2)
     return a:n1.path.CompareTo(a:n2.path)
 endfunction
 
+"FUNCTION: oTreeFileNode.Delete {{{3 
+"Removes this node from the tree and calls the Delete method for its path obj
+function! s:oTreeFileNode.Delete() dict
+    call self.path.Delete()
+    call self.parent.RemoveChild(self)
+endfunction
+
 "FUNCTION: oTreeFileNode.Equals(treenode) {{{3 
 "
 "Compares this treenode to the input treenode and returns 1 if they are the
@@ -236,6 +243,20 @@ function! s:oTreeFileNode.New(path) dict
         let newTreeNode.path = a:path
         let newTreeNode.parent = {}
         return newTreeNode
+    endif
+endfunction
+
+"FUNCTION: oTreeFileNode.Rename {{{3 
+"Calls the rename method for this nodes path obj 
+function! s:oTreeFileNode.Rename(newName) dict
+    call self.path.Rename(a:newName)
+    call self.parent.RemoveChild(self)
+
+    let parentPath = self.path.GetPathTrunk()
+    let newParent = t:NERDTreeRoot.FindNode(parentPath)
+
+    if newParent != {}
+        call newParent.CreateChild(self.path, 1)
     endif
 endfunction
 
@@ -449,7 +470,7 @@ function! s:oTreeDirNode.InitChildren() dict
             try
                 let path = s:oPath.New(i)
                 call self.CreateChild(path, 0)
-            catch /^NERDTree.InvalidArguments/
+            catch /^NERDTree.Path.InvalidArguments/
                 let invalidFilesFound = 1
             endtry
         endif
@@ -470,7 +491,7 @@ endfunction
 unlet s:oTreeDirNode.New
 function! s:oTreeDirNode.New(path) dict
     if a:path.isDirectory != 1
-        throw "NERDTree.InvalidArguments exception. A TreeDirNode object must be instantiated with a directory Path object."
+        throw "NERDTree.TreeDirNode.InvalidArguments exception. A TreeDirNode object must be instantiated with a directory Path object."
     endif
 
     let newTreeNode = copy(self)
@@ -561,7 +582,9 @@ function! s:oTreeDirNode.Refresh() dict
 
                 "the node doesnt exist so create it 
                 else
-                    call add(newChildNodes, s:oTreeFileNode.New(path))
+                    let newNode = s:oTreeFileNode.New(path)
+                    let newNode.parent = self
+                    call add(newChildNodes, newNode)
                 endif
 
 
@@ -587,17 +610,16 @@ endfunction
 "Args:
 "treenode: the node to remove
 "
-"Return:
-"1 if the node is removed, 0 if not
+"Throws a NERDTree.TreeDirNode exception if the given treenode is not found
 function! s:oTreeDirNode.RemoveChild(treenode) dict
     for i in range(0, len(self.children)-1)
         if self.children[i].Equals(a:treenode)
             call remove(self.children, i)
-            return 1
+            return
         endif
     endfor
 
-    return 0
+    throw "NERDTree.TreeDirNode exception: child node was not found"
 endfunction
 
 "FUNCTION: oTreeDirNode.SortChildren {{{3 
@@ -813,7 +835,7 @@ function! s:oPath.GetFile() dict
     if self.isDirectory == 0
         return self.GetLastPathComponent(0)
     else
-        throw "NERDTree.IllegalOperation Exception: cannot get file component of a directory path"
+        throw "NERDTree.Path.IllegalOperation Exception: cannot get file component of a directory path"
     endif
 endfunction
 
@@ -896,8 +918,7 @@ endfunction
 "FUNCTION: oPath.New() {{{3 
 "
 "The Constructor for the Path object
-"
-"Throws NERDTree.InvalidArguments exception.
+"Throws NERDTree.Path.InvalidArguments exception.
 function! s:oPath.New(fullpath) dict
     let newPath = copy(self)
 
@@ -926,7 +947,7 @@ endfunction
 "FUNCTION: oPath.ReadInfoFromDisk(fullpath) {{{3 
 "
 "
-"Throws NERDTree.InvalidArguments exception.
+"Throws NERDTree.Path.InvalidArguments exception.
 function! s:oPath.ReadInfoFromDisk(fullpath) dict
     let fullpath = a:fullpath
 
@@ -943,7 +964,7 @@ function! s:oPath.ReadInfoFromDisk(fullpath) dict
         let self.isDirectory = 0
         let self.isReadOnly = filewritable(fullpath) == 0
     else
-        throw "NERDTree.InvalidArguments Exception: Invalid path = " . fullpath
+        throw "NERDTree.Path.InvalidArguments Exception: Invalid path = " . fullpath
     endif
 
     "grab the last part of the path (minus the trailing slash) 
@@ -980,7 +1001,7 @@ endfunction
 "Renames this node on the filesystem
 function! s:oPath.Rename(newPath) dict
     if a:newPath == ''
-        throw "NERDTree.InvalidArguments exception. Invalid newPath for renaming = ". a:newPath
+        throw "NERDTree.Path.InvalidArguments exception. Invalid newPath for renaming = ". a:newPath
     endif
 
     let success =  rename(self.Str(0), a:newPath)
@@ -1026,13 +1047,18 @@ endfunction
 "Return:
 "a string that can be used in the view to represent this path
 function! s:oPath.StrDisplay() dict
+    let toReturn = self.GetLastPathComponent(1)
+
     if self.isSymLink
-        return self.GetLastPathComponent(1) . ' -> ' . self.symLinkDest
-    elseif self.isReadOnly
-        return self.GetLastPathComponent(1) . s:tree_RO_str
-    else
-        return self.GetLastPathComponent(1) 
+        let toReturn .=  ' -> ' . self.symLinkDest
     endif
+
+    if self.isReadOnly
+        let toReturn .=  s:tree_RO_str
+    endif
+
+
+    return toReturn
 endfunction
 
 "FUNCTION: oPath.StrForEditCmd() {{{3 
@@ -1163,7 +1189,7 @@ function! s:InitNerdTree(dir)
         unlet t:NERDTreeRoot
     endif
 
-    let path = s:oPath.New(dir)
+	let path = s:oPath.New(dir)
     let t:NERDTreeRoot = s:oTreeDirNode.New(path)
     call t:NERDTreeRoot.Open()
 
@@ -1328,7 +1354,7 @@ function! s:CreateTreeWin()
 
     setl winfixwidth
 
-    " throwaway buffer options
+    "throwaway buffer options
     setlocal noswapfile
     setlocal buftype=nofile
     setlocal bufhidden=delete 
@@ -1871,40 +1897,45 @@ endfunction
 
 "FUNCTION: s:SetupSyntaxHighlighting() {{{2 
 function! s:SetupSyntaxHighlighting()
+    "treeFlags are syntax items that should be invisible, but give clues as to
+    "how things should be highlighted
+    syn match treeFlag #\~#
+    syn match treeFlag #\[RO\]#
+
+    "highlighting for the .. (up dir) line at the top of the tree 
+    execute "syn match treeUp #". s:tree_up_dir_line ."#"
+
+    "highlighting for the ~/+ symbols for the directory nodes 
+    syn match treeClosable #\~\<#
+    syn match treeClosable #\~\.#
+    syn match treeOpenable #+\<#
+    syn match treeOpenable #+\.#he=e-1
+
+    "highlighting for the tree structural parts 
+    syn match treePart #|#
+    syn match treePart #`#
+    syn match treePartFile #[|`]-#hs=s+1 contains=treePart
+
+    "quickhelp syntax elements 
     syn match treeHelpKey #" \{1,2\}[^ ]*:#hs=s+2,he=e-1
     syn match treeHelpKey #" \{1,2\}[^ ]*,#hs=s+2,he=e-1
-    syn match treeFlag #\~#
-    syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag,ErrorMsg,DiffChange,DiffAdd,Search
+    syn match treeHelpTitle #" .*\~#hs=s+2,he=e-1 contains=treeFlag
     syn match treeToggleOn #".*(on)#hs=e-2,he=e-1 contains=treeHelpKey
     syn match treeToggleOff #".*(off)#hs=e-3,he=e-1 contains=treeHelpKey
     syn match treeHelp  #^" .*# contains=treeHelpKey,treeHelpTitle,treeFlag,treeToggleOff,treeToggleOn
 
+    "highlighting for sym links 
+    syn match treeLink #[^-| `].* -> #
 
-    syn match treePart  #|#
-    syn match treePart  #`#
-    syn match treePartFile #[|`]-#hs=s+1 contains=treePart
-
-    syn match treeLnk #[^-| `].* -> # 
-    syn match treeDir #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLnk,treeDirSlash
-    syn match treeDirSlash #/#
-    syn match treeFile  #|-.*# contains=treeLnk,treePart,treeRO,treePartFile
-    syn match treeFile  #`-.*# contains=treeLnk,treePart,treeRO,treePartFile
-    syn match treeCWD #^/.*$# 
-
-    execute "syn match treeUp #". s:tree_up_dir_line ."#"
-    syn match treeFlag #\[RO\]#
+    "highlighting for readonly files 
     syn match treeRO #[0-9a-zA-Z]\+.*\[RO\]# contains=treeFlag
-    syn match treeClosable #\~\<#
-    syn match treeClosable #\~\.#
-    syn match treeOpenable #+\<#
-    syn match treeOpenable #+\.#
 
-    hi def link treeHelp String
-    hi def link treeHelpKey Identifier
-    hi def link treeHelpTitle Macro
-    hi def link treeToggleOn Question
-    hi def link treeToggleOff WarningMsg
-
+    "highlighing for directory nodes and file nodes 
+    syn match treeDirSlash #/#
+    syn match treeDir #[^-| `].*/\([ {}]\{4\}\)*$# contains=treeLink,treeDirSlash,treeOpenable,treeClosable
+    syn match treeFile  #|-.*# contains=treeLink,treePart,treeRO,treePartFile
+    syn match treeFile  #`-.*# contains=treeLink,treePart,treeRO,treePartFile
+    syn match treeCWD #^/.*$# 
 
     if g:NERDChristmasTree
         hi def link treePart Special
@@ -1919,10 +1950,16 @@ function! s:SetupSyntaxHighlighting()
         hi def link treeClosable Title
     endif
 
+    hi def link treeHelp String
+    hi def link treeHelpKey Identifier
+    hi def link treeHelpTitle Macro
+    hi def link treeToggleOn Question
+    hi def link treeToggleOff WarningMsg
+
     hi def link treeDir Directory
     hi def link treeUp Directory
     hi def link treeCWD Statement
-    hi def link treeLnk Title
+    hi def link treeLink Title
     hi def link treeOpenable Title
     hi def link treeFlag ignore
     hi def link treeRO WarningMsg
@@ -2191,15 +2228,15 @@ function! s:DeleteNode()
 
     if confirmed
         try
-            call currentNode.path.Delete()
-            call currentNode.parent.RemoveChild(currentNode)
+            call currentNode.Delete()
             call s:RenderView()
 
             "if the node is open in a buffer, ask the user if they want to
             "close that buffer 
             let bufnum = bufnr(currentNode.path.Str(0))
             if bufnum != -1
-                call s:PromptToDelBuffer(bufnum,"|\n|Node deleted.\n|\n|The file is open in a buffer. Delete this buffer? (yN)")
+                let prompt = "|\n|Node deleted.\n|\n|The file is open in buffer ". bufnum . (bufwinnr(bufnum) == -1 ? " (hidden)" : "") .". Delete this buffer? (yN)"
+                call s:PromptToDelBuffer(bufnum, prompt)
             endif
 
             redraw
@@ -2458,21 +2495,14 @@ function! s:RenameCurrent()
     try
         let bufnum = bufnr(curNode.path.Str(0))
 
-        call curNode.path.Rename(newNodePath)
-        call curNode.parent.RemoveChild(curNode)
-
-        let parentPath = curNode.path.GetPathTrunk()
-        let newParent = t:NERDTreeRoot.FindNode(parentPath)
-
-        if newParent != {}
-            call newParent.CreateChild(curNode.path, 1)
-        endif
+        call curNode.Rename(newNodePath)
         call s:RenderView()
 
         "if the node is open in a buffer, ask the user if they want to
         "close that buffer 
         if bufnum != -1
-            call s:PromptToDelBuffer(bufnum,"|\n|Node renamed.\n|\n|The old file is open in a buffer. Delete this buffer? (yN)")
+            let prompt = "|\n|Node renamed.\n|\n|The old file is open in buffer ". bufnum . (bufwinnr(bufnum) == -1 ? " (hidden)" : "") .". Delete this buffer? (yN)"
+            call s:PromptToDelBuffer(bufnum, prompt)
         endif
 
         call s:PutCursorOnNode(curNode, 1)
@@ -2577,6 +2607,7 @@ function! s:UpDir(keepState)
     endif
 endfunction
 
+
 " SECTION: Doc installation call {{{1
 silent call s:InstallDocumentation(expand('<sfile>:p'), s:NERD_tree_version)
 "============================================================
@@ -2615,7 +2646,7 @@ CONTENTS {{{2                                         *NERD_tree-contents*
                                                                    *NERD_tree*
 1. Intro {{{2 ~
 
-What is this "NERD_tree"??
+What is this "NERD tree"??
 
 The NERD tree allows you to explore your filesystem and to open files and
 directories. It presents the filesystem to you in the form of a tree which you
@@ -2686,7 +2717,7 @@ When the cursor is in the NERD tree window a number of mappings are available
 to use the tree. They are listed below along with the option name that can be
 used to customise each mapping.
 
-To change a mapping simply set the mapping option in your vimrc. Eg >
+To change a mapping simply set the mapping option in your |vimrc|. Eg >
     let g:NERDTreeMapOpenSplit = 'i'
 <
 
@@ -2787,7 +2818,6 @@ operations: >
     2. Renaming nodes.
     3. Deleting nodes.
 <
-
 1. Adding nodes:
 To add a node move the cursor onto (or anywhere inside) the directory you wish
 to create the new node inside. Select the 'add node' option from the
@@ -2823,7 +2853,7 @@ NERD tree. These options should be set in your vimrc.
 |loaded_nerd_tree|              Turns off the script.
 
 |NERDChristmasTree|             Tells the NERD tree to make itself colourful
-                                and pretty .
+                                and pretty.
 
 |NERDTreeChDirMode|             Tells the NERD tree if/when it should change
                                 vim's current working directory.
@@ -3054,13 +3084,13 @@ left of the window and the NERD tree on the right.
 Defaults to 1.
 
 ------------------------------------------------------------------------------
-                                                             *NERDTreeWinSize*               
+                                                             *NERDTreeWinSize*
 This option is used to change the size of the NERD tree when it is loaded.
 To use this option, stick the following line in your vimrc: >
     let NERDTreeWinSize=[New Win Size]
 <
 
-Defaults to 30.
+Defaults to 31.
 
 ==============================================================================
                                                               *NERD_tree-todo*
@@ -3087,27 +3117,33 @@ fridge for later.
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
 
+2.1.1
+    - Added a bit more info about the buffers you are prompted to delete when
+      renaming/deleting nodes from the filesystem menu that are already loaded
+      into buffers.
+    - Refactoring and bugfixes
+
 2.1.0
-- Finally removed the blank line that always appears at the top of the
-  NERDTree buffer
-- Added NERDTreeMouseMode option. If set to 1, then a double click is
-  required to activate all nodes, if set to 2 then a single click will
-  activate directory nodes, if set to 3 then a single click will activate
-  all nodes.
-- Now if you delete a file node and have it open in a buffer you are given
-  the option to delete that buffer as well. Similarly if you rename a file
-  you are given the option to delete any buffers containing the old file
-  (if any exist)
-- When you rename or create a node, the cursor is now put on the new node,
-  this makes it easy immediately edit  the new file.
-- Fixed a bug with the ! mapping that was occurring on windows with paths
-  containing spaces.
-- Made all the mappings customisable. See |NERD_tree-mappings| for
-  details. A side effect is that a lot of the "double mappings" have
-  disappeared. E.g 'o' is now the key that is used to activate a node,
-  <CR> is no longer mapped to the same.
-- Made the script echo warnings in some places rather than standard echos
-- Insane amounts of refactoring all over the place.
+    - Finally removed the blank line that always appears at the top of the
+      NERDTree buffer
+    - Added NERDTreeMouseMode option. If set to 1, then a double click is
+      required to activate all nodes, if set to 2 then a single click will
+      activate directory nodes, if set to 3 then a single click will activate
+      all nodes.
+    - Now if you delete a file node and have it open in a buffer you are given
+      the option to delete that buffer as well. Similarly if you rename a file
+      you are given the option to delete any buffers containing the old file
+      (if any exist)
+    - When you rename or create a node, the cursor is now put on the new node,
+      this makes it easy immediately edit  the new file.
+    - Fixed a bug with the ! mapping that was occurring on windows with paths
+      containing spaces.
+    - Made all the mappings customisable. See |NERD_tree-mappings| for
+      details. A side effect is that a lot of the "double mappings" have
+      disappeared. E.g 'o' is now the key that is used to activate a node,
+      <CR> is no longer mapped to the same.
+    - Made the script echo warnings in some places rather than standard echos
+    - Insane amounts of refactoring all over the place.
 
 2.0.0
     - Added two new NERDChristmasTree decorations. First person to spot them
