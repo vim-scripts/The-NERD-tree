@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  7 april 2007
+" Last Change:  21 april 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.1.1'
+let s:NERD_tree_version = '2.1.2'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -1066,17 +1066,12 @@ endfunction
 "Return: the string for this path that is suitable to be used with the :edit
 "command
 function! s:oPath.StrForEditCmd() dict
-    let toReturn = '/' . join(self.pathSegments, '/')
-    if self.isDirectory && toReturn != '/'
-        let toReturn  = toReturn . '/'
+    if s:running_windows
+        return self.StrForOS(0)
+	else
+		return self.Str(1)
     endif
 
-    "only escape spaces for non windows OSs 
-    if s:running_windows == 0
-        let toReturn = escape(toReturn, ' ')
-    endif
-
-    return toReturn
 endfunction
 "FUNCTION: oPath.StrForOS(esc) {{{3 
 "
@@ -1659,7 +1654,7 @@ function! s:GetPath(ln)
         endif
     endwhile
     let curFile = dir . curFile
-    return s:oPath.New(curFile)
+    return s:oPath.NewMinimal(curFile)
 endfunction 
 
 "FUNCTION: s:GetSelectedNode() {{{2 
@@ -1676,6 +1671,19 @@ function! s:GetSelectedNode()
     endtry
 endfunction
 
+function SelectedNode()
+    return s:GetSelectedNode()
+endf
+
+"FUNCTION: s:GetTreeBufNum()"{{{2
+"gets the nerd tree buffer number for this tab
+function! s:GetTreeWinNum() 
+    if exists("t:NERDTreeWinName")
+        return bufnr(t:NERDTreeWinName)
+    else
+        return -1
+    endif
+endfunction
 "FUNCTION: s:GetTreeWinNum()"{{{2
 "gets the nerd tree window number for this tab
 function! s:GetTreeWinNum() 
@@ -1706,7 +1714,11 @@ endfunction
 "treenode: file node to open
 function! s:OpenFileNodeSplit(treenode) 
     if a:treenode.path.isDirectory == 0
-        call s:OpenNodeSplit(a:treenode)
+        try
+            call s:OpenNodeSplit(a:treenode)
+        catch /^NERDTree.view.FileOpen/
+            echo "NERDTree: Cannot open file, it is already open and modified" 
+        endtry
     endif
 endfunction
 
@@ -1716,7 +1728,7 @@ endfunction
 "ARGS:
 "treenode: file node to open
 function! s:OpenNodeSplit(treenode) 
-    exe s:GetTreeWinNum() . 'wincmd w'
+    call s:PutCursorInTreeWin()
 
     " Save the user's settings for splitbelow and splitright
     let savesplitbelow=&splitbelow
@@ -1773,7 +1785,12 @@ function! s:OpenNodeSplit(treenode)
     endif
 
     " Open the new window
-    exec("silent " . splitMode." sp " . a:treenode.path.Str(1))
+    try
+        exec("silent " . splitMode." sp " . a:treenode.path.StrForEditCmd())
+    catch /^Vim\%((\a\+)\)\=:E37/
+		call s:PutCursorInTreeWin()
+        throw "NERDTree.view.FileOpen exception: ". a:treenode.path.Str(0) ." is already open and modified."
+    endtry
 
     " resize the explorer window if it is larger than the requested size
     exec(there)
@@ -1800,11 +1817,11 @@ endfunction
 function! s:PromptToDelBuffer(bufnum, msg) 
     echo a:msg
     if nr2char(getchar()) == 'y'
-        exec "bdelete " . a:bufnum
+        exec "silent bdelete " . a:bufnum
     endif
 endfunction
 
-"FUNCTION: s:PutCursorOnNode(treenode){{{2
+"FUNCTION: s:PutCursorOnNode(treenode, is_jump){{{2
 "Places the cursor on the line number representing the given node
 "
 "Args:
@@ -1818,6 +1835,17 @@ function! s:PutCursorOnNode(treenode, is_jump)
         endif
         call cursor(ln, col("."))
     endif
+endfunction
+
+"FUNCTION: s:PutCursorInTreeWin(){{{2
+"Places the cursor in the nerd tree window
+function! s:PutCursorInTreeWin() 
+	let treeWinnr = s:GetTreeWinNum()
+	if treeWinnr == -1
+		throw "NERDTree.view.InvalidOperation Exception: No NERD tree window exists"
+	endif
+
+	exec treeWinnr . "wincmd w"
 endfunction
 
 "FUNCTION: s:RenderView {{{2 
@@ -1837,9 +1865,7 @@ function! s:RenderView()
     let topLine = line("w0")
 
     "delete all lines in the buffer (being careful not to clobber a register)  
-    let save_y = @"
-    silent! normal ggdG
-    let @" = save_y
+    :silent 1,$delete _
 
     call s:DumpHelp()
 
@@ -1859,7 +1885,7 @@ function! s:RenderView()
     call s:DrawTree(t:NERDTreeRoot, 0, 0, [], len(t:NERDTreeRoot.children) == 1)
 
     "delete the blank line at the top of the buffer
-    :1,1d
+    :silent 1,1delete _
 
     "restore the view 
     call cursor(topLine, 1)
@@ -2042,7 +2068,12 @@ function! s:ActivateNode()
             wincmd p
             call s:OpenFileNodeSplit(treenode)
         else
-            exec ("edit " . treenode.path.Str(1))
+            try
+                exec ("edit " . treenode.path.StrForEditCmd())
+            catch /^Vim\%((\a\+)\)\=:E37/
+				call s:PutCursorInTreeWin()
+                echo "NERDTree: Cannot open file, it is already open and modified 1"
+            endtry
         endif
     endif
 endfunction
@@ -2459,7 +2490,7 @@ function! s:RefreshCurrent()
     endif
 
     let curDir = treenode.path.GetDir(1)
-    let parentNode = t:NERDTreeRoot.FindNode( s:oPath.New(curDir) )
+    let parentNode = t:NERDTreeRoot.FindNode(s:oPath.New(curDir))
     if parentNode == {}
         echo "NERDTree: cannot refresh selected dir"
         return
@@ -2729,7 +2760,7 @@ NERDTreeMapActivateNode     o        If the cursor is on a file, this file is
                                      opened in the previous window. If the
                                      cursor is on a directory, the directory
                                      node is expanded in the tree.
-NERDTreeMapOpenSplit        O        Applies to dirs. Recursively opens the
+NERDTreeMapOpenRecursively  O        Applies to dirs. Recursively opens the
                                      selected directory. This could take a
                                      while to complete so be prepared to go
                                      grab a cup of tea.  Only opens dirs that
@@ -3116,6 +3147,15 @@ fridge for later.
 ==============================================================================
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
+
+2.1.2
+    - Stopped the script from clobbering the 1,2,3 .. 9 registers.
+    - Made it "silent!"ly delete buffers when renaming/deleting file nodes.
+    - Minor correction to the doc
+    - Fixed a bug when refreshing that was occurring when the node you
+      refreshed had been deleted externally.
+    - Fixed a bug that was occurring when you open a file that is already open
+      and modified.
 
 2.1.1
     - Added a bit more info about the buffers you are prompted to delete when
