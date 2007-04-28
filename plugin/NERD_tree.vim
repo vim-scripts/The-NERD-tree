@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  21 april 2007
+" Last Change:  28 april 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.1.2'
+let s:NERD_tree_version = '2.2.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -40,6 +40,7 @@ call s:InitVariable("g:NERDTreeChDirMode", 1)
 if !exists("g:NERDTreeIgnore")
     let g:NERDTreeIgnore = ['\~$']
 endif
+call s:InitVariable("g:NERDTreeHighlightCursorline", 1)
 call s:InitVariable("g:NERDTreeMouseMode", 1)
 call s:InitVariable("g:NERDTreeShowHidden", 0)
 call s:InitVariable("g:NERDTreeShowFiles", 1)
@@ -1178,7 +1179,7 @@ function! s:InitNerdTree(dir)
     let t:NERDTreeIgnoreEnabled = 1
 
     if exists("t:NERDTreeRoot")
-        if s:GetTreeWinNum() != -1
+        if s:IsTreeOpen()
             call s:CloseTree()
         endif
         unlet t:NERDTreeRoot
@@ -1321,8 +1322,7 @@ endfunction
 "FUNCTION: s:CloseTree() {{{2 
 "Closes the NERD tree window
 function! s:CloseTree()
-    let winnr = s:GetTreeWinNum()
-    if winnr == -1
+    if s:IsTreeOpen()
         throw "NERDTree.view.CloseTree exception: no NERDTree is open"
     endif
 
@@ -1355,10 +1355,13 @@ function! s:CreateTreeWin()
     setlocal bufhidden=delete 
     setlocal nowrap
     setlocal foldcolumn=0
-
     setlocal nobuflisted
     setlocal nospell
     iabc <buffer>
+
+    if g:NERDTreeHighlightCursorline
+        setlocal cursorline
+    endif
 
     " syntax highlighting
     if has("syntax") && exists("g:syntax_on") && !has("syntax_items")
@@ -1677,7 +1680,7 @@ endf
 
 "FUNCTION: s:GetTreeBufNum()"{{{2
 "gets the nerd tree buffer number for this tab
-function! s:GetTreeWinNum() 
+function! s:GetTreeBufNum() 
     if exists("t:NERDTreeWinName")
         return bufnr(t:NERDTreeWinName)
     else
@@ -1692,6 +1695,11 @@ function! s:GetTreeWinNum()
     else
         return -1
     endif
+endfunction
+
+"FUNCTION: s:IsTreeOpen()"{{{2
+function! s:IsTreeOpen() 
+    return s:GetTreeWinNum() != -1
 endfunction
 
 "FUNCTION: s:OpenDirNodeSplit(treenode)"{{{2
@@ -1840,12 +1848,11 @@ endfunction
 "FUNCTION: s:PutCursorInTreeWin(){{{2
 "Places the cursor in the nerd tree window
 function! s:PutCursorInTreeWin() 
-	let treeWinnr = s:GetTreeWinNum()
-	if treeWinnr == -1
+	if !s:IsTreeOpen()
 		throw "NERDTree.view.InvalidOperation Exception: No NERD tree window exists"
 	endif
 
-	exec treeWinnr . "wincmd w"
+	exec s:GetTreeWinNum() . "wincmd w"
 endfunction
 
 "FUNCTION: s:RenderView {{{2 
@@ -1989,6 +1996,8 @@ function! s:SetupSyntaxHighlighting()
     hi def link treeOpenable Title
     hi def link treeFlag ignore
     hi def link treeRO WarningMsg
+
+    hi def link NERDTreeCurrentNode Search
 endfunction
 "FUNCTION: s:StripMarkupFromLine(line){{{2
 "returns the given line with all the tree parts stripped off
@@ -2030,7 +2039,7 @@ endfunction
 "initialized.
 function! s:Toggle(dir)
     if exists("t:NERDTreeRoot")
-        if s:GetTreeWinNum() == -1
+        if !s:IsTreeOpen()
             call s:CreateTreeWin()
             call s:RenderView()
 
@@ -2648,11 +2657,20 @@ finish
 " Title {{{2
 " ============================================================================
 === START_DOC
-*NERD_tree.txt*   A plugin for navigating the filesystem        #version#
+*NERD_tree.txt*   A tree explorer plugin for           #version#
 
 
-                           NERD_TREE REFERENCE MANUAL~
 
+
+
+    ________  ________   _   ____________  ____     __________  ____________~
+   /_  __/ / / / ____/  / | / / ____/ __ \/ __ \   /_  __/ __ \/ ____/ ____/~
+    / / / /_/ / __/    /  |/ / __/ / /_/ / / / /    / / / /_/ / __/ / __/   ~
+   / / / __  / /___   / /|  / /___/ _, _/ /_/ /    / / / _, _/ /___/ /___   ~
+  /_/ /_/ /_/_____/  /_/ |_/_____/_/ |_/_____/    /_/ /_/ |_/_____/_____/   ~
+
+
+                              Reference Manual~
 
 
 
@@ -2885,9 +2903,11 @@ NERD tree. These options should be set in your vimrc.
 
 |NERDChristmasTree|             Tells the NERD tree to make itself colourful
                                 and pretty.
-
 |NERDTreeChDirMode|             Tells the NERD tree if/when it should change
                                 vim's current working directory.
+
+|NERDTreeHighlightCursorline|   Tell the NERD tree whether to highlight the
+                                current cursor line.
 
 |NERDTreeIgnore|                Tells the NERD tree which files to ignore.
 
@@ -2929,27 +2949,23 @@ off with this line in your vimrc: >
 
 ------------------------------------------------------------------------------
                                                            *NERDChristmasTree*
+Values: 0 or 1.
+Default: 1.
+
 If this option is set to 1 then some extra syntax highlighting elements are
 added to the nerd tree to make it more colourful.
 
-Set it to 0 like this: >
-    let NERDChristmasTree = 0
-<
-for a more vanilla looking tree.
-
-Defaults to 1.
-
+Set it to 0 for a more vanilla looking tree.
 
 ------------------------------------------------------------------------------
                                                            *NERDTreeChDirMode*                
+
+Values: 0, 1 or 2.
+Default: 1.
+
 Use this option to tell the script when (if at all) to change the current
 working directory (CWD) for vim.
 
-This option takes one of 3 values: >
-    let NERDTreeChDirMode = 0
-    let NERDTreeChDirMode = 1
-    let NERDTreeChDirMode = 2
-<
 If it is set to 0 then the CWD is never changed by the NERD tree.
 
 If set to 1 then the CWD is changed when the NERD tree is first loaded to the
@@ -2973,10 +2989,19 @@ file in the root dir of my project. This way i can initialise the NERD tree
 with the root dir of my project and always have ctags available to me --- no
 matter where i go with the NERD tree.
 
-Defaults to 1.
+------------------------------------------------------------------------------
+                                                 *NERDTreeHighlightCursorline*
+Values: 0 or 1.
+Default: 1.
+
+If set to 1, the current cursor line in the NERD tree buffer will be
+highlighted. This is done using the |cursorline| option.
 
 ------------------------------------------------------------------------------
                                                               *NERDTreeIgnore*                
+Values: a list of regular expressions.
+Default: ['\~$'].
+
 This option is used to specify which files the NERD tree should ignore.  It
 must be a list of regular expressions. When the NERD tree is rendered, any
 files/dirs that match any of the regex's in NERDTreeIgnore wont be displayed. 
@@ -2993,15 +3018,11 @@ line: >
 
 The file filters can be turned on and off dynamically with the f mapping.
 
-Defaults to ['\~$'].
-
 ------------------------------------------------------------------------------
                                                            *NERDTreeMouseMode*                
-This option can take three values: >
-    let NERDTreeMouseMode=0
-    let NERDTreeMouseMode=1
-    let NERDTreeMouseMode=2
-<
+Values: 0, 1 or 2.
+Default: 1.
+
 If set to 1 then a double click on a node is required to open it. 
 If set to 2 then a single click will open directory nodes, while a double
 click will still be required for file nodes.
@@ -3015,14 +3036,11 @@ itself. For example, if you have the following node: >
 then (to single click activate it) you must click somewhere in
 'application.rb'.
 
-Defaults to 1.
-
 ------------------------------------------------------------------------------
                                                            *NERDTreeShowFiles*            
-This option can take two values: >
-    let NERDTreeShowFiles=0
-    let NERDTreeShowFiles=1
-<
+Values: 0 or 1.
+Default: 1.
+
 If this option is set to 1 then files are displayed in the NERD tree. If it is
 set to 0 then only directories are displayed.
 
@@ -3033,10 +3051,11 @@ the tree.
 This option can be used in conjunction with the e, middle-click and E mappings
 to make the NERD tree function similar to windows explorer.
 
-Defaults to 1.
-
 ------------------------------------------------------------------------------
                                                           *NERDTreeShowHidden*            
+Values: 0 or 1.
+Default: 0.
+
 This option tells vim whether to display hidden files by default. This option
 can be dynamically toggled with the D mapping see |NERD_tree_mappings|.
 Use one of the follow lines to set this option: >
@@ -3044,10 +3063,10 @@ Use one of the follow lines to set this option: >
     let NERDTreeShowHidden=1
 <
                                                        
-Defaults to 0.
-
 ------------------------------------------------------------------------------
                                                            *NERDTreeSortOrder*
+Values: a list of regular expressions.
+Default: ['\/$', '*', '\.swp$',  '\.bak$', '\~$']
 
 This option is set to a list of regular expressions which are used to
 specify the order of nodes under their parent.
@@ -3067,7 +3086,6 @@ The regex '\/$' should be used to match directory nodes.
 
 After this sorting is done, the files in each group are sorted alphabetically.
 
-
 Other examples: >
     (1) ['*', '\/$']
     (2) []
@@ -3078,32 +3096,27 @@ Other examples: >
 3. Dirs will appear first, then ruby and php. Swap files, bak files and vim
    backup files will appear last with everything else preceding them.
 
-Defaults to ['\/$', '*', '\.swp$',  '\.bak$', '\~$']
-
-
 ------------------------------------------------------------------------------
                                                        *NERDTreeSplitVertical*
+Values: 0 or 1.
+Default: 1.
+
 This option, along with |NERDTreeWinPos|, is used to determine where the NERD
-tree window appears. This option can take 2 values: >
-    let NERDTreeSplitVertical=0
-    let NERDTreeSplitVertical=1
-<
+tree window appears. 
+
 If it is set to 1 then the NERD tree window will appear on either the left or
 right side of the screen (depending on the |NERDTreeWinPos| option).
 
 If it set to 0 then the NERD tree window will appear at the top of the screen.
 
-Defaults to 1.
-
 ------------------------------------------------------------------------------
                                                               *NERDTreeWinPos*
+Values: 0 or 1.
+Default: 1.
+
 This option works in conjunction with the |NERDTreeSplitVertical| option to
 determine where NERD tree window is placed on the screen.
 
-NERDTreeWinPos can take one of two values: >
-    let NERDTreeWinPos=0
-    let NERDTreeWinPos=1
-<
 If the option is set to 1 then the NERD tree will appear on the left or top of
 the screen (depending on the value of |NERDTreeSplitVertical|). If set to 0,
 the window will appear on the right or bottom of the screen. 
@@ -3112,16 +3125,12 @@ This option is makes it possible to use two different explorer type
 plugins simultaneously. For example, you could have the taglist plugin on the
 left of the window and the NERD tree on the right.
 
-Defaults to 1.
-
 ------------------------------------------------------------------------------
                                                              *NERDTreeWinSize*
-This option is used to change the size of the NERD tree when it is loaded.
-To use this option, stick the following line in your vimrc: >
-    let NERDTreeWinSize=[New Win Size]
-<
+Values: a positive integer.
+Default: 31.
 
-Defaults to 31.
+This option is used to change the size of the NERD tree when it is loaded.
 
 ==============================================================================
                                                               *NERD_tree-todo*
@@ -3142,11 +3151,15 @@ a living.
 He can be reached at martin_grenfell at msn.com. He would love to hear from
 you, so feel free to send him suggestions and/or comments about this plugin.
 Don't be shy --- the worst he can do is slaughter you and stuff you in the
-fridge for later.    
+fridge for later ;)
 
 ==============================================================================
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
+
+2.1.3
+    - Now 'cursorline' is set in the NERD tree buffer by default. See :help
+      NERDTreeHighlightCursorline for how to disable it.
 
 2.1.2
     - Stopped the script from clobbering the 1,2,3 .. 9 registers.
