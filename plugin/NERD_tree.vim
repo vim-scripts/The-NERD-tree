@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
 " Last Change:  28 april 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.2.0'
+let s:NERD_tree_version = '2.2.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -1322,7 +1322,7 @@ endfunction
 "FUNCTION: s:CloseTree() {{{2 
 "Closes the NERD tree window
 function! s:CloseTree()
-    if s:IsTreeOpen()
+    if !s:IsTreeOpen()
         throw "NERDTree.view.CloseTree exception: no NERDTree is open"
     endif
 
@@ -2657,7 +2657,7 @@ finish
 " Title {{{2
 " ============================================================================
 === START_DOC
-*NERD_tree.txt*   A tree explorer plugin for           #version#
+*NERD_tree.txt*   A tree explorer plugin that owns            #version#
 
 
 
@@ -2903,6 +2903,7 @@ NERD tree. These options should be set in your vimrc.
 
 |NERDChristmasTree|             Tells the NERD tree to make itself colourful
                                 and pretty.
+
 |NERDTreeChDirMode|             Tells the NERD tree if/when it should change
                                 vim's current working directory.
 
@@ -3157,7 +3158,11 @@ fridge for later ;)
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
 
-2.1.3
+2.2.1
+    - Bug fix that was causing an exception when closing the nerd tree. Thanks
+      to Tim carey-smith and Yu Jun for pointing this out.
+
+2.2.0
     - Now 'cursorline' is set in the NERD tree buffer by default. See :help
       NERDTreeHighlightCursorline for how to disable it.
 
@@ -3245,6 +3250,9 @@ forward slashes as well as backward.
 Thanks to Michael Geddes (frogonwheels on #vim at freenode) for giving me some
 tips about syntax highlighting when i was doing highlighting for the
 quickhelp.
+
+Thanks to Yu Jun for emailing me about a bug that was occurring when closing
+the tree.
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2:
