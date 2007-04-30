@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
 " Last Change:  28 april 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.2.1'
+let s:NERD_tree_version = '2.2.2'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -1327,7 +1327,7 @@ function! s:CloseTree()
     endif
 
     if winnr("$") != 1
-        execute winnr . " wincmd w"
+        execute s:GetTreeWinNum() . " wincmd w"
         close
         execute "wincmd p"
     else
@@ -3157,6 +3157,9 @@ fridge for later ;)
 ==============================================================================
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
+
+2.2.2
+    - More bugfixes... doh.
 
 2.2.1
     - Bug fix that was causing an exception when closing the nerd tree. Thanks
