@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  13 march 2007
+" Last Change:  23 march 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.2.3'
+let s:NERD_tree_version = '2.3.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -83,9 +83,11 @@ call s:InitVariable("g:NERDTreeMapCloseDir", "x")
 call s:InitVariable("g:NERDTreeMapExecute", "!")
 call s:InitVariable("g:NERDTreeMapFilesystemMenu", "m")
 call s:InitVariable("g:NERDTreeMapHelp", "?")
-call s:InitVariable("g:NERDTreeMapJumpNextSibling", "s")
+call s:InitVariable("g:NERDTreeMapJumpFirstChild", "K")
+call s:InitVariable("g:NERDTreeMapJumpLastChild", "J")
+call s:InitVariable("g:NERDTreeMapJumpNextSibling", "<C-j>")
 call s:InitVariable("g:NERDTreeMapJumpParent", "p")
-call s:InitVariable("g:NERDTreeMapJumpPrevSibling", "S")
+call s:InitVariable("g:NERDTreeMapJumpPrevSibling", "<C-k>")
 call s:InitVariable("g:NERDTreeMapOpenExpl", "e")
 call s:InitVariable("g:NERDTreeMapOpenExplNewWin", "E")
 call s:InitVariable("g:NERDTreeMapOpenInTab", "t")
@@ -229,6 +231,22 @@ function! s:oTreeFileNode.FindSibling(direction) dict
     return {}
 endfunction
 
+"FUNCTION: oTreeFileNode.IsVisible() {{{3 
+"returns 1 if this node should be visible according to the tree filters and
+"hidden file filters (and their on/off status)
+function! s:oTreeFileNode.IsVisible() dict
+    return !self.path.Ignore()
+endfunction
+
+
+"FUNCTION: oTreeFileNode.IsRoot() {{{3 
+"returns 1 if this node is t:NERDTreeRoot 
+function! s:oTreeFileNode.IsRoot() dict
+    if !s:TreeExistsForTab()
+        throw "NERDTree.TreeFileNode.IsRoot exception: No tree exists for the current tab"
+    endif
+    return self.Equals(t:NERDTreeRoot)
+endfunction
 
 "FUNCTION: oTreeFileNode.New(path) {{{3 
 "Returns a new TreeNode object with the given path and parent
@@ -1178,7 +1196,7 @@ function! s:InitNerdTree(dir)
     let t:treeShowHelp = 0
     let t:NERDTreeIgnoreEnabled = 1
 
-    if exists("t:NERDTreeRoot")
+    if s:TreeExistsForTab()
         if s:IsTreeOpen()
             call s:CloseTree()
         endif
@@ -1315,6 +1333,12 @@ function! s:InstallDocumentation(full_name, revision)
     exe 'helptags ' . l:vim_doc_path
 
     return 1
+endfunction
+
+" Function: s:TreeExistsForTab()   {{{2
+" Returns 1 if a nerd tree root exists in the current tab
+function! s:TreeExistsForTab()
+    return exists("t:NERDTreeRoot")
 endfunction
 
 " SECTION: View Functions {{{1
@@ -1457,7 +1481,7 @@ function! s:DumpHelp()
         let @h=   "\" NERD tree (" . s:NERD_tree_version . ") quickhelp~\n"
         let @h=@h."\" ============================\n"
         let @h=@h."\" File node mappings~\n"
-        let @h=@h."\" double-click,\n"
+        let @h=@h."\" ". (g:NERDTreeMouseMode == 3 ? "single" : "double") ."-click,\n"
         let @h=@h."\" ". g:NERDTreeMapActivateNode .": open in prev window\n"
         let @h=@h."\" ". g:NERDTreeMapOpenInTab.": open in new tab\n"
         let @h=@h."\" ". g:NERDTreeMapOpenInTabSilent .": open in new tab silently\n"
@@ -1467,12 +1491,12 @@ function! s:DumpHelp()
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Directory node mappings~\n"
-        let @h=@h."\" double-click,\n"
+        let @h=@h."\" ". (g:NERDTreeMouseMode == 1 ? "double" : "single") ."-click,\n"
         let @h=@h."\" ". g:NERDTreeMapActivateNode .": open/close node \n"
         let @h=@h."\" ". g:NERDTreeMapOpenRecursively .": recursively open node\n"
         let @h=@h."\" ". g:NERDTreeMapCloseDir .": close the current dir\n"
         let @h=@h."\" ". g:NERDTreeMapCloseChildren .": close all child nodes of\n"
-        let @h=@h."\"    seleted node\n"
+        let @h=@h."\"    node (recursively)\n"
         let @h=@h."\" middle-click,\n"
         let @h=@h."\" ". g:NERDTreeMapOpenExpl.": Open netrw for selected\n"
         let @h=@h."\"    node \n"
@@ -1481,22 +1505,24 @@ function! s:DumpHelp()
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Tree navigation mappings~\n"
-        let @h=@h."\" ". g:NERDTreeMapJumpParent .": jump to parent node\n"
-        let @h=@h."\" ". g:NERDTreeMapJumpNextSibling .": jump to next sibling node\n"
-        let @h=@h."\" ". g:NERDTreeMapJumpPrevSibling .": jump to prev sibling node\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpParent .": go to parent\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpFirstChild  .": go to first child\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpLastChild   .": go to last child\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpNextSibling .": go to next sibling\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpPrevSibling .": go to prev sibling\n"
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Filesystem mappings~\n"
-        let @h=@h."\"  ". g:NERDTreeMapChangeRoot .": change tree root to the\n"
-        let @h=@h."\"     selected dir\n"
-        let @h=@h."\" ". g:NERDTreeMapChdir .": change the CWD to the\n"
-        let @h=@h."\"     selected dir\n"
-        let @h=@h."\"  ". g:NERDTreeMapUpdir .": move tree root up a dir\n"
-        let @h=@h."\"  ". g:NERDTreeMapUpdirKeepOpen .": move tree root up a dir\n"
-        let @h=@h."\"     but leave old root open\n"
-        let @h=@h."\"  ". g:NERDTreeMapRefresh .": refresh cursor dir\n"
-        let @h=@h."\"  ". g:NERDTreeMapRefreshRoot .": refresh current root\n"
-        let @h=@h."\"  ". g:NERDTreeMapFilesystemMenu .": Show filesystem menu\n"
+        let @h=@h."\" ". g:NERDTreeMapChangeRoot .": change tree root to the\n"
+        let @h=@h."\"    selected dir\n"
+        let @h=@h."\" ". g:NERDTreeMapUpdir .": move tree root up a dir\n"
+        let @h=@h."\" ". g:NERDTreeMapUpdirKeepOpen .": move tree root up a dir\n"
+        let @h=@h."\"    but leave old root open\n"
+        let @h=@h."\" ". g:NERDTreeMapRefresh .": refresh cursor dir\n"
+        let @h=@h."\" ". g:NERDTreeMapRefreshRoot .": refresh current root\n"
+        let @h=@h."\" ". g:NERDTreeMapFilesystemMenu .": Show filesystem menu\n"
+        let @h=@h."\" ". g:NERDTreeMapChdir .":change the CWD to the\n"
+        let @h=@h."\"    selected dir\n"
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Tree filtering mappings~\n"
@@ -1531,14 +1557,14 @@ function! s:Echo(msg, type)
     echo "NERDTree: " . a:msg
     echohl normal
 endfunction
-"FUNCTION: s:FindNodeLineNumber(path){{{2
+"FUNCTION: s:FindNodeLineNumber(treenode){{{2
 "Finds the line number for the given tree node
 "
 "Args:
 "treenode: the node to find the line no. for
 function! s:FindNodeLineNumber(treenode) 
     "if the node is the root then return the root line no. 
-    if t:NERDTreeRoot.Equals(a:treenode)
+    if a:treenode.IsRoot()
         return s:FindRootNodeLineNumber()
     endif
 
@@ -1669,6 +1695,18 @@ function! s:GetPath(ln)
     return s:oPath.NewMinimal(curFile)
 endfunction 
 
+"FUNCTION: s:GetSelectedDir() {{{2 
+"Returns the current node if it is a dir node, or else returns the current
+"nodes parent
+function! s:GetSelectedDir() 
+    let currentDir = s:GetSelectedNode()
+    if currentDir != {} && !currentDir.IsRoot()
+        if currentDir.path.isDirectory == 0
+            let currentDir = currentDir.parent
+        endif
+    endif
+    return currentDir
+endfunction
 "FUNCTION: s:GetSelectedNode() {{{2 
 "gets the treenode that the cursor is currently over
 function! s:GetSelectedNode() 
@@ -1682,10 +1720,6 @@ function! s:GetSelectedNode()
         return {}
     endtry
 endfunction
-
-function SelectedNode()
-    return s:GetSelectedNode()
-endf
 
 "FUNCTION: s:GetTreeBufNum()"{{{2
 "gets the nerd tree buffer number for this tab
@@ -1834,7 +1868,7 @@ endfunction
 function! s:PromptToDelBuffer(bufnum, msg) 
     echo a:msg
     if nr2char(getchar()) == 'y'
-        exec "silent bdelete " . a:bufnum
+        exec "silent bdelete! " . a:bufnum
     endif
 endfunction
 
@@ -1911,6 +1945,24 @@ function! s:RenderView()
     setlocal nomodifiable
 endfunction
 
+"FUNCTION: s:RenderViewSavingPosition {{{2 
+"Renders the tree and ensures the cursor stays on the current node or the
+"current nodes parent if it is no longer available upon re-rendering
+function! s:RenderViewSavingPosition()
+    let currentNode = s:GetSelectedNode()
+
+    "go up the tree till we find a node that will be visible or till we run
+    "out of nodes 
+    while currentNode != {} && !currentNode.IsVisible() && !currentNode.IsRoot()
+        let currentNode = currentNode.parent
+    endwhile
+
+    call s:RenderView()
+
+    if currentNode != {}
+        call s:PutCursorOnNode(currentNode, 0)
+    endif
+endfunction
 "FUNCTION: s:RestoreScreenState() {{{2 
 "
 "Sets the screen state back to what it was when s:SaveScreenState was last
@@ -2047,7 +2099,7 @@ endfunction
 "dir: the full path for the root node (is only used if the NERD tree is being
 "initialized.
 function! s:Toggle(dir)
-    if exists("t:NERDTreeRoot")
+    if s:TreeExistsForTab()
         if !s:IsTreeOpen()
             call s:CreateTreeWin()
             call s:RenderView()
@@ -2141,6 +2193,9 @@ function! s:BindMappings()
 
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExpl ." :call <SID>OpenExplorer(0)<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExplNewWin ." :call <SID>OpenExplorer(1)<cr>"
+
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpFirstChild ." :call <SID>JumpToFirstChild()<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpLastChild ." :call <SID>JumpToLastChild()<cr>"
 endfunction
 
 "FUNCTION: s:CheckForActivate() {{{2
@@ -2215,30 +2270,22 @@ endfunction
 " FUNCTION: s:CloseChildren() {{{2
 " closes all childnodes of the current node
 function! s:CloseChildren() 
-    let currentNode = s:GetSelectedNode()
+    let currentNode = s:GetSelectedDir()
     if currentNode == {}
         call s:Echo("Select a node first", 0)
         return
     endif
 
-    if currentNode.path.isDirectory == 0
-        let currentNode = currentNode.parent
-    endif
-
-    if empty(currentNode)
-        call s:Echo("cannot close children", 0)
-    else
-        call currentNode.CloseChildren()
-        call s:RenderView()
-        call s:PutCursorOnNode(currentNode, 0)
-    endif
+    call currentNode.CloseChildren()
+    call s:RenderView()
+    call s:PutCursorOnNode(currentNode, 0)
 endfunction
 " FUNCTION: s:CloseCurrentDir() {{{2
 " closes the parent dir of the current node
 function! s:CloseCurrentDir() 
     let treenode = s:GetSelectedNode()
     let parent = treenode.parent
-    if parent.path.Str(0) == t:NERDTreeRoot.path.Str(0)
+    if parent.IsRoot()
         call s:Echo("cannot close tree root", 0)
     else
         call treenode.parent.Close()
@@ -2344,14 +2391,10 @@ endfunction
 " FUNCTION: s:InsertNewNode() {{{2
 " Adds a new node to the filesystem and then into the tree
 function! s:InsertNewNode() 
-    let curDirNode = s:GetSelectedNode()
+    let curDirNode = s:GetSelectedDir()
     if curDirNode == {}
         call s:Echo("Put the cursor on a node first" , 0)
         return
-    endif
-
-    if curDirNode.path.isDirectory == 0
-        let curDirNode = curDirNode.parent
     endif
 
     let newNodeName = input("|NERDTree Node Creator\n" .
@@ -2378,6 +2421,36 @@ function! s:InsertNewNode()
     catch /^NERDTree/
         call s:Echo("Node Not Created.", 1)
     endtry
+endfunction
+
+" FUNCTION: s:JumpToChild(first) {{{2
+function! s:JumpToChild(first) 
+    let currentNode = s:GetSelectedNode()
+    if currentNode == {} || currentNode.IsRoot()
+        call s:Echo("cannot jump to " . (a:first ? "first" : "last") .  " child", 0)
+        return
+    end
+    let dirNode = currentNode.parent
+    let childNodes = dirNode.GetChildrenToDisplay()
+
+    let targetNode = childNodes[0]
+    if !a:first
+        let targetNode = childNodes[len(childNodes) - 1]
+    endif
+    call s:PutCursorOnNode(targetNode, 1)
+endfunction
+
+
+" FUNCTION: s:JumpToFirstChild() {{{2
+" wrapper for the jump to child method
+function! s:JumpToFirstChild() 
+    call s:JumpToChild(1)
+endfunction
+
+" FUNCTION: s:JumpToLastChild() {{{2
+" wrapper for the jump to child method
+function! s:JumpToLastChild() 
+    call s:JumpToChild(0)
 endfunction
 
 " FUNCTION: s:JumpToParent() {{{2
@@ -2449,11 +2522,8 @@ endfunction
 
 " FUNCTION: s:OpenExplorer(split) {{{2
 function! s:OpenExplorer(split) 
-    let treenode = s:GetSelectedNode()
+    let treenode = s:GetSelectedDir()
     if treenode != {}
-        if treenode.path.isDirectory == 0
-            let treenode = treenode.parent
-        endif
         if a:split == 1
             call s:OpenDirNodeSplit(treenode)
         else
@@ -2501,21 +2571,14 @@ endfunction
 " FUNCTION: s:RefreshCurrent() {{{2
 " refreshes the root for the current node
 function! s:RefreshCurrent() 
-    let treenode = s:GetSelectedNode()
+    let treenode = s:GetSelectedDir()
     if treenode == {} 
         call s:Echo("Refresh failed. Select a node first", 0)
         return
     endif
 
-    let curDir = treenode.path.GetDir(1)
-    let parentNode = t:NERDTreeRoot.FindNode(s:oPath.New(curDir))
-    if parentNode == {}
-        call s:Echo("cannot refresh selected dir", 0)
-        return
-    endif
-
     call s:Echo("Refreshing node. This could take a while...", 0)
-    call parentNode.Refresh()
+    call treenode.Refresh()
     call s:RenderView()
     redraw
     call s:Echo("Refreshing node. This could take a while... FINISHED", 0)
@@ -2593,34 +2656,21 @@ endfunction
 " toggles the use of the NERDTreeIgnore option 
 function! s:ToggleIgnoreFilter() 
     let t:NERDTreeIgnoreEnabled = !t:NERDTreeIgnoreEnabled
-    call s:RenderView()
+    call s:RenderViewSavingPosition()
 endfunction
 
 " FUNCTION: s:ToggleShowFiles() {{{2
 " toggles the display of hidden files
 function! s:ToggleShowFiles() 
     let g:NERDTreeShowFiles = !g:NERDTreeShowFiles
-
-    let currentDir = s:GetSelectedNode()
-    if currentDir != {} && currentDir.Equals(t:NERDTreeRoot) == 0
-        if currentDir.path.isDirectory == 0
-            let currentDir = currentDir.parent
-        endif
-    endif
-
-    call s:RenderView()
-
-    if currentDir != {}
-        call s:PutCursorOnNode(currentDir, 0)
-        normal zz
-    endif
+    call s:RenderViewSavingPosition()
 endfunction
 
 " FUNCTION: s:ToggleShowHidden() {{{2
 " toggles the display of hidden files
 function! s:ToggleShowHidden() 
     let g:NERDTreeShowHidden = !g:NERDTreeShowHidden
-    call s:RenderView()
+    call s:RenderViewSavingPosition()
 endfunction
 
 "FUNCTION: s:UpDir(keepState) {{{2
@@ -2730,8 +2780,8 @@ The following features and functionality are provided by the NERD tree:
         * custom file filters to prevent e.g. vim backup files being displayed
         * optional displaying of hidden files (. files)
         * files can be "turned off" so that only directories are displayed
-    * A textual filesystem menu is provided which allows you to create new
-      directory nodes and create/delete/rename file nodes
+    * A textual filesystem menu is provided which allows you to
+      create/delete/rename file and directory nodes
     * The position and size of the NERD tree window can be customised 
     * The order in which the nodes in the tree are listed can be customised.
     * A model of your filesystem is created/maintained as you explore it. This
@@ -2820,11 +2870,15 @@ NERDTreeMapRefresh          r        Recursively refreshes the directory that
 NERDTreeMapRefreshRoot      R        Recursively refreshes the current root of
                                      the tree... this could take a while for
                                      large trees.
+NERDTreeMapJumpFirstChild   K        Moves the cursor to the first child of
+                                     the current nodes parent.
+NERDTreeMapJumpLastChild    J        Moves the cursor to last child node of
+                                     the current nodes parent.
 NERDTreeMapJumpParent       p        Moves the cursor to parent directory of
                                      the directory it is currently inside.
-NERDTreeMapJumpNextSibling  s        Moves the cursor to next sibling of the
+NERDTreeMapJumpNextSibling  <C-j>    Moves the cursor to next sibling of the
                                      current node.
-NERDTreeMapJumpPrevSibling  S        Moves the cursor to previous sibling of
+NERDTreeMapJumpPrevSibling  <C-k>    Moves the cursor to previous sibling of
                                      the current node.
 NERDTreeMapToggleHidden     H        Toggles whether hidden files are shown
                                      or not.
@@ -3030,7 +3084,7 @@ The file filters can be turned on and off dynamically with the f mapping.
 
 ------------------------------------------------------------------------------
                                                            *NERDTreeMouseMode*                
-Values: 0, 1 or 2.
+Values: 1, 2 or 3.
 Default: 1.
 
 If set to 1 then a double click on a node is required to open it. 
@@ -3167,6 +3221,24 @@ fridge for later ;)
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
 
+2.3.0
+    - Tree navigation changes:
+      - Added J and K mappings to jump to last/first child of the current dir.
+        Options to customise these mappings have also been added.
+      - Remapped the jump to next/prev sibling commands to be <C-j> and <C-k> by
+        default.
+      These changes should hopefully make tree navigation mappings easier to
+      remember and use as the j and k keys are simply reused 3 times (twice
+      with modifier keys).
+
+    - Made it so that, when any of the tree filters are toggled, the cursor
+      stays with the selected node (or goes to its parent/grandparent/... if
+      that node is no longer visible)
+    - Fixed an error in the doc for the mouse mode option.
+    - Made the quickhelp correctly display the current single/double click
+      mappings for opening nodes as specified by the NERDTreeMouseMode option.
+    - Fixed a bug where the script was spazzing after prompting you to delete
+      a modified buffer when using the filesystem menu.  - Refactoring
 2.2.3
     - Refactored the :echo output from the script.
     - Fixed some minor typos in the doc.
