@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
 " Last Change:  23 march 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.3.0'
+let s:NERD_tree_version = '2.4.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -36,6 +36,8 @@ endfunction
 
 "SECTION: Init variable calls {{{2 
 call s:InitVariable("g:NERDChristmasTree", 1)
+call s:InitVariable("g:NERDTreeAutoCenter", 1)
+call s:InitVariable("g:NERDTreeAutoCenterThreshold", 3)
 call s:InitVariable("g:NERDTreeChDirMode", 1)
 if !exists("g:NERDTreeIgnore")
     let g:NERDTreeIgnore = ['\~$']
@@ -88,6 +90,7 @@ call s:InitVariable("g:NERDTreeMapJumpLastChild", "J")
 call s:InitVariable("g:NERDTreeMapJumpNextSibling", "<C-j>")
 call s:InitVariable("g:NERDTreeMapJumpParent", "p")
 call s:InitVariable("g:NERDTreeMapJumpPrevSibling", "<C-k>")
+call s:InitVariable("g:NERDTreeMapJumpRoot", "P")
 call s:InitVariable("g:NERDTreeMapOpenExpl", "e")
 call s:InitVariable("g:NERDTreeMapOpenExplNewWin", "E")
 call s:InitVariable("g:NERDTreeMapOpenInTab", "t")
@@ -102,7 +105,6 @@ call s:InitVariable("g:NERDTreeMapToggleFilters", "f")
 call s:InitVariable("g:NERDTreeMapToggleHidden", "H")
 call s:InitVariable("g:NERDTreeMapUpdir", "u")
 call s:InitVariable("g:NERDTreeMapUpdirKeepOpen", "U")
-
 
 "SECTION: Script level variable declaration{{{2
 let s:escape_chars =  " `|\"~'#"
@@ -1148,6 +1150,17 @@ endfunction
 
 " SECTION: General Functions {{{1
 "============================================================
+
+"FUNCTION: s:Abs(num){{{2
+"returns the absolute value of the input
+function! s:Abs(num) 
+    if a:num > 0
+        return a:num
+    else
+        return 0 - a:num
+    end
+endfunction
+
 "FUNCTION: s:BufInWindows(bnum){{{2
 "[[STOLEN FROM VTREEEXPLORER.VIM]]
 "Determine the number of windows open to this buffer number. 
@@ -1322,7 +1335,7 @@ function! s:InstallDocumentation(full_name, revision)
 
     " Replace revision:
     "exe "normal :1s/#version#/ v" . a:revision . "/\<CR>"
-    exe "normal :%s/#version#/ v" . a:revision . "/\<CR>"
+    exe "normal! :%s/#version#/ v" . a:revision . "/\<CR>"
 
     " Save the help document:
     exe 'w! ' . l:doc_file
@@ -1343,6 +1356,20 @@ endfunction
 
 " SECTION: View Functions {{{1
 "============================================================
+"FUNCTION: s:CenterView() {{{2 
+"centers the nerd tree window around the cursor (provided the nerd tree
+"options permit)
+function! s:CenterView()
+    if g:NERDTreeAutoCenter
+        let current_line = winline()
+        let lines_to_top = current_line
+        let lines_to_bottom = winheight(s:GetTreeWinNum()) - current_line
+        if lines_to_top < g:NERDTreeAutoCenterThreshold || lines_to_bottom < g:NERDTreeAutoCenterThreshold
+            normal! zz
+        endif
+    endif
+endfunction
+
 "FUNCTION: s:CloseTree() {{{2 
 "Closes the NERD tree window
 function! s:CloseTree()
@@ -1496,7 +1523,7 @@ function! s:DumpHelp()
         let @h=@h."\" ". g:NERDTreeMapOpenRecursively .": recursively open node\n"
         let @h=@h."\" ". g:NERDTreeMapCloseDir .": close the current dir\n"
         let @h=@h."\" ". g:NERDTreeMapCloseChildren .": close all child nodes of\n"
-        let @h=@h."\"    node (recursively)\n"
+        let @h=@h."\"    current node recursively\n"
         let @h=@h."\" middle-click,\n"
         let @h=@h."\" ". g:NERDTreeMapOpenExpl.": Open netrw for selected\n"
         let @h=@h."\"    node \n"
@@ -1505,6 +1532,7 @@ function! s:DumpHelp()
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Tree navigation mappings~\n"
+        let @h=@h."\" ". g:NERDTreeMapJumpRoot .": go to root\n"
         let @h=@h."\" ". g:NERDTreeMapJumpParent .": go to parent\n"
         let @h=@h."\" ". g:NERDTreeMapJumpFirstChild  .": go to first child\n"
         let @h=@h."\" ". g:NERDTreeMapJumpLastChild   .": go to last child\n"
@@ -1939,7 +1967,7 @@ function! s:RenderView()
 
     "restore the view 
     call cursor(topLine, 1)
-    normal zt
+    normal! zt
     call cursor(curLine, curCol)
 
     setlocal nomodifiable
@@ -1975,7 +2003,7 @@ function! s:RestoreScreenState()
     endif
 
     call cursor(t:NERDTreeOldTopLine, 0)
-    normal zt
+    normal! zt
     call setpos(".", t:NERDTreeOldPos)
 endfunction
 
@@ -2187,6 +2215,9 @@ function! s:BindMappings()
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpParent ." :call <SID>JumpToParent()<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpNextSibling ." :call <SID>JumpToSibling(1)<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpPrevSibling ." :call <SID>JumpToSibling(0)<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpFirstChild ." :call <SID>JumpToFirstChild()<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpLastChild ." :call <SID>JumpToLastChild()<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpRoot ." :call <SID>JumpToRoot()<cr>"
 
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTab ." :call <SID>OpenEntryNewTab(0)<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTabSilent ." :call <SID>OpenEntryNewTab(1)<cr>"
@@ -2194,8 +2225,7 @@ function! s:BindMappings()
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExpl ." :call <SID>OpenExplorer(0)<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExplNewWin ." :call <SID>OpenExplorer(1)<cr>"
 
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpFirstChild ." :call <SID>JumpToFirstChild()<cr>"
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpLastChild ." :call <SID>JumpToLastChild()<cr>"
+
 endfunction
 
 "FUNCTION: s:CheckForActivate() {{{2
@@ -2438,6 +2468,8 @@ function! s:JumpToChild(first)
         let targetNode = childNodes[len(childNodes) - 1]
     endif
     call s:PutCursorOnNode(targetNode, 1)
+
+    call s:CenterView()
 endfunction
 
 
@@ -2460,12 +2492,20 @@ function! s:JumpToParent()
     if !empty(currentNode)
         if !empty(currentNode.parent) 
             call s:PutCursorOnNode(currentNode.parent, 1)
+            call s:CenterView()
         else
             call s:Echo("cannot jump to parent", 0)
         endif
     else
         call s:Echo("put the cursor on a node first", 0)
     endif
+endfunction
+
+" FUNCTION: s:JumpToRoot() {{{2
+" moves the cursor to the root node
+function! s:JumpToRoot() 
+    call s:PutCursorOnNode(t:NERDTreeRoot, 1)
+    call s:CenterView()
 endfunction
 
 " FUNCTION: s:JumpToSibling() {{{2
@@ -2480,6 +2520,7 @@ function! s:JumpToSibling(forward)
         let sibling = currentNode.FindSibling(a:forward)
         if !empty(sibling)
             call s:PutCursorOnNode(sibling, 1)
+            call s:CenterView()
         else
             call s:Echo("no sibling found", 0)
         endif
@@ -2657,6 +2698,7 @@ endfunction
 function! s:ToggleIgnoreFilter() 
     let t:NERDTreeIgnoreEnabled = !t:NERDTreeIgnoreEnabled
     call s:RenderViewSavingPosition()
+    call s:CenterView()
 endfunction
 
 " FUNCTION: s:ToggleShowFiles() {{{2
@@ -2664,6 +2706,7 @@ endfunction
 function! s:ToggleShowFiles() 
     let g:NERDTreeShowFiles = !g:NERDTreeShowFiles
     call s:RenderViewSavingPosition()
+    call s:CenterView()
 endfunction
 
 " FUNCTION: s:ToggleShowHidden() {{{2
@@ -2671,6 +2714,7 @@ endfunction
 function! s:ToggleShowHidden() 
     let g:NERDTreeShowHidden = !g:NERDTreeShowHidden
     call s:RenderViewSavingPosition()
+    call s:CenterView()
 endfunction
 
 "FUNCTION: s:UpDir(keepState) {{{2
@@ -2874,6 +2918,7 @@ NERDTreeMapJumpFirstChild   K        Moves the cursor to the first child of
                                      the current nodes parent.
 NERDTreeMapJumpLastChild    J        Moves the cursor to last child node of
                                      the current nodes parent.
+NERDTreeMapJumpRoot         P        Moves the cursor to the root node
 NERDTreeMapJumpParent       p        Moves the cursor to parent directory of
                                      the directory it is currently inside.
 NERDTreeMapJumpNextSibling  <C-j>    Moves the cursor to next sibling of the
@@ -2967,6 +3012,10 @@ NERD tree. These options should be set in your vimrc.
 |NERDChristmasTree|             Tells the NERD tree to make itself colourful
                                 and pretty.
 
+|NERDTreeAutoCenter|            Controls whether the NERD tree window centers
+                                when the cursor moves within a specified
+                                distance to the top/bottom of the window.
+
 |NERDTreeChDirMode|             Tells the NERD tree if/when it should change
                                 vim's current working directory.
 
@@ -3020,6 +3069,27 @@ If this option is set to 1 then some extra syntax highlighting elements are
 added to the nerd tree to make it more colourful.
 
 Set it to 0 for a more vanilla looking tree.
+
+------------------------------------------------------------------------------
+                                                          *NERDTreeAutoCenter*                
+Values: 0 or 1.
+Default: 1
+
+If set to 1, the NERD tree window will center around the cursor if it moves to
+within |NERDTreeAutoCenterThreshold| lines of the top/bottom of the window.
+
+This is ONLY done in response to tree navigation mappings, 
+i.e. J K <C-J> <c-K> p P
+
+The centering is done with a |zz| operation.
+
+------------------------------------------------------------------------------
+                                                 *NERDTreeAutoCenterThreshold*                
+Values: Any natural number.
+Default: 3
+
+This option controls the "sensitivity" of the NERD tree auto centering. See
+|NERDTreeAutoCenter| for details.
 
 ------------------------------------------------------------------------------
                                                            *NERDTreeChDirMode*                
@@ -3221,6 +3291,16 @@ fridge for later ;)
                                                          *NERD_tree-changelog*
 6. Changelog {{{2 ~
 
+2.4.0
+    - Added the P mapping to jump to the tree root.
+    - Added window centering functionality that can be triggered when doing
+      using any of the tree nav mappings. Essentially, if the cursor comes
+      within a certain distance of the top/bottom of the window then a zz is
+      done in the window. Two related options were added: NERDTreeAutoCenter
+      to turn this functionality on/off, and NERDTreeAutoCenterThreshold to
+      control how close the cursor has to be to the window edge to trigger the
+      centering.
+
 2.3.0
     - Tree navigation changes:
       - Added J and K mappings to jump to last/first child of the current dir.
@@ -3238,7 +3318,8 @@ fridge for later ;)
     - Made the quickhelp correctly display the current single/double click
       mappings for opening nodes as specified by the NERDTreeMouseMode option.
     - Fixed a bug where the script was spazzing after prompting you to delete
-      a modified buffer when using the filesystem menu.  - Refactoring
+      a modified buffer when using the filesystem menu.  
+    - Refactoring
 2.2.3
     - Refactored the :echo output from the script.
     - Fixed some minor typos in the doc.
