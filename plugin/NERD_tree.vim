@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  25 june 2007
+" Last Change:  7 july 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.5.0'
+let s:NERD_tree_version = '2.6.0'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -95,7 +95,6 @@ call s:InitVariable("g:NERDTreeMapJumpParent", "p")
 call s:InitVariable("g:NERDTreeMapJumpPrevSibling", "<C-k>")
 call s:InitVariable("g:NERDTreeMapJumpRoot", "P")
 call s:InitVariable("g:NERDTreeMapOpenExpl", "e")
-call s:InitVariable("g:NERDTreeMapOpenExplNewWin", "E")
 call s:InitVariable("g:NERDTreeMapOpenInTab", "t")
 call s:InitVariable("g:NERDTreeMapOpenInTabSilent", "T")
 call s:InitVariable("g:NERDTreeMapOpenRecursively", "O")
@@ -199,6 +198,31 @@ function! s:oTreeFileNode.FindNode(path) dict
     endif
     return {}
 endfunction
+"FUNCTION: oTreeFileNode.FindOpenDirSiblingWithChildren(direction) {{{3 
+"
+"Finds the next sibling for this node in the indicated direction. This sibling
+"must be a directory and may/may not have children as specified.
+"
+"Args:
+"direction: 0 if you want to find the previous sibling, 1 for the next sibling
+"
+"Return:
+"a treenode object or {} if no appropriate sibling could be found
+function! s:oTreeFileNode.FindOpenDirSiblingWithChildren(direction) dict
+    "if we have no parent then we can have no siblings 
+    if self.parent != {}
+        let nextSibling = self.FindSibling(a:direction)
+
+        while nextSibling != {}
+            if nextSibling.path.isDirectory && nextSibling.HasVisibleChildren() && nextSibling.isOpen
+                return nextSibling
+            endif
+            let nextSibling = nextSibling.FindSibling(a:direction)
+        endwhile
+    endif
+
+    return {}
+endfunction
 "FUNCTION: oTreeFileNode.FindSibling(direction) {{{3 
 "
 "Finds the next sibling for this node in the indicated direction  
@@ -220,7 +244,7 @@ function! s:oTreeFileNode.FindSibling(direction) dict
             let siblingIndx = a:direction == 1 ? siblingIndx+1 : siblingIndx-1
 
             "keep moving along to the next sibling till we find one that is valid 
-            let numSiblings = len(self.parent.children)
+            let numSiblings = self.parent.GetChildCount()
             while siblingIndx >= 0 && siblingIndx < numSiblings
 
                 "if the next node is not an ignored node (i.e. wont show up in the
@@ -377,6 +401,12 @@ function! s:oTreeDirNode.FindNode(path) dict
 endfunction
 
 "FUNCTION: oTreeDirNode.GetChildDirs() {{{3 
+"Returns the number of children this node has
+function! s:oTreeDirNode.GetChildCount() dict
+    return len(self.children)
+endfunction
+
+"FUNCTION: oTreeDirNode.GetChildDirs() {{{3 
 "Returns an array of all children of this node that are directories
 "
 "Return:
@@ -406,21 +436,6 @@ function! s:oTreeDirNode.GetChildFiles() dict
     return toReturn
 endfunction
 
-"FUNCTION: oTreeDirNode.GetChildrenToDisplay() {{{3 
-"Returns a list of children to display for this node, in the correct order
-"
-"Return:
-"an array of treenodes
-function! s:oTreeDirNode.GetChildrenToDisplay() dict
-    let toReturn = []
-    for i in self.children
-        if i.path.Ignore() == 0
-            call add(toReturn, i)
-        endif
-    endfor
-    return toReturn
-endfunction
-
 "FUNCTION: oTreeDirNode.GetChild(path) {{{3 
 "Returns child node of this node that has the given path or {} if no such node
 "exists.
@@ -443,6 +458,20 @@ function! s:oTreeDirNode.GetChild(path) dict
 
 endfunction
 
+"FUNCTION: oTreeDirNode.GetChildByIndex(indx, visible) {{{3 
+"returns the child at the given index
+"Args:
+"indx: the index to get the child from
+"visible: 1 if only the visible children array should be used, 0 if all the
+"children should be searched.
+function! s:oTreeDirNode.GetChildByIndex(indx, visible) dict
+    let array_to_search = a:visible? self.GetVisibleChildren() : self.children
+    if a:indx > len(array_to_search)
+        throw "NERDTree.TreeDirNode.InvalidArguments exception. Index is out of bounds."
+    endif
+    return array_to_search[a:indx]
+endfunction
+
 "FUNCTION: oTreeDirNode.GetChildIndex(path) {{{3 
 "Returns the index of the child node of this node that has the given path or
 "-1 if no such node exists.
@@ -458,7 +487,7 @@ function! s:oTreeDirNode.GetChildIndex(path) dict
 
     "do a binary search for the child 
     let a = 0
-    let z = len(self.children)
+    let z = self.GetChildCount()
     while a < z
         let mid = (a+z)/2
         let diff = a:path.CompareTo(self.children[mid].path)
@@ -472,6 +501,33 @@ function! s:oTreeDirNode.GetChildIndex(path) dict
         endif
     endwhile
     return -1
+endfunction
+
+"FUNCTION: oTreeDirNode.GetVisibleChildCount() {{{3 
+"Returns the number of visible children this node has
+function! s:oTreeDirNode.GetVisibleChildCount() dict
+    return len(self.GetVisibleChildren())
+endfunction
+
+"FUNCTION: oTreeDirNode.GetVisibleChildren() {{{3 
+"Returns a list of children to display for this node, in the correct order
+"
+"Return:
+"an array of treenodes
+function! s:oTreeDirNode.GetVisibleChildren() dict
+    let toReturn = []
+    for i in self.children
+        if i.path.Ignore() == 0
+            call add(toReturn, i)
+        endif
+    endfor
+    return toReturn
+endfunction
+
+"FUNCTION: oTreeDirNode.HasVisibleChildren {{{3 
+"returns 1 if this node has any childre, 0 otherwise..
+function! s:oTreeDirNode.HasVisibleChildren()
+    return self.GetChildCount() != 0
 endfunction
 
 "FUNCTION: oTreeDirNode.InitChildren {{{3 
@@ -514,13 +570,13 @@ function! s:oTreeDirNode.InitChildren(silent) dict
 
     if !a:silent && len(files) > g:NERDTreeNotificationThreshold
         call s:Echo("Please wait, caching a large dir ...")
-        call s:Echo("Please wait, caching a large dir ... DONE (". len(self.children) ." nodes cached).")
+        call s:Echo("Please wait, caching a large dir ... DONE (". self.GetChildCount() ." nodes cached).")
     endif
 
     if invalidFilesFound
         call s:EchoWarning("some files could not be loaded into the NERD tree")
     endif
-    return len(self.children)
+    return self.GetChildCount()
 endfunction
 "FUNCTION: oTreeDirNode.New(path) {{{3 
 "Returns a new TreeNode object with the given path and parent
@@ -651,7 +707,7 @@ endfunction
 "
 "Throws a NERDTree.TreeDirNode exception if the given treenode is not found
 function! s:oTreeDirNode.RemoveChild(treenode) dict
-    for i in range(0, len(self.children)-1)
+    for i in range(0, self.GetChildCount()-1)
         if self.children[i].Equals(a:treenode)
             call remove(self.children, i)
             return
@@ -689,7 +745,7 @@ endfunction
 "Arg:
 "newNode: the node to graft into the tree 
 function! s:oTreeDirNode.TransplantChild(newNode) dict
-    for i in range(0, len(self.children)-1)
+    for i in range(0, self.GetChildCount()-1)
         if self.children[i].Equals(a:newNode)
             let self.children[i] = a:newNode
             let a:newNode.parent = self
@@ -1537,7 +1593,7 @@ function! s:DrawTree(curNode, depth, drawText, vertMap, isLastChild)
     "if the node is an open dir, draw its children 
     if a:curNode.path.isDirectory == 1 && a:curNode.isOpen == 1 
 
-        let childNodesToDraw = a:curNode.GetChildrenToDisplay()
+        let childNodesToDraw = a:curNode.GetVisibleChildren()
         if len(childNodesToDraw) > 0
 
             "draw all the nodes children except the last 
@@ -1578,14 +1634,12 @@ function! s:DumpHelp()
         let @h=@h."\" ". (g:NERDTreeMouseMode == 1 ? "double" : "single") ."-click,\n"
         let @h=@h."\" ". g:NERDTreeMapActivateNode .": open/close node \n"
         let @h=@h."\" ". g:NERDTreeMapOpenRecursively .": recursively open node\n"
-        let @h=@h."\" ". g:NERDTreeMapCloseDir .": close the current dir\n"
+        let @h=@h."\" ". g:NERDTreeMapCloseDir .": close parent of node\n"
         let @h=@h."\" ". g:NERDTreeMapCloseChildren .": close all child nodes of\n"
         let @h=@h."\"    current node recursively\n"
         let @h=@h."\" middle-click,\n"
         let @h=@h."\" ". g:NERDTreeMapOpenExpl.": Open netrw for selected\n"
         let @h=@h."\"    node \n"
-        let @h=@h."\" ". g:NERDTreeMapOpenExplNewWin .": Open netrw in new window\n"
-        let @h=@h."\"    for selected node\n"
 
         let @h=@h."\" \n\" ----------------------------\n"
         let @h=@h."\" Tree navigation mappings~\n"
@@ -1842,6 +1896,37 @@ function! s:IsTreeOpen()
     return s:GetTreeWinNum() != -1
 endfunction
 
+" FUNCTION: s:JumpToChild(direction) {{{2
+" Args:
+" direction: 0 if going to first child, 1 if going to last
+function! s:JumpToChild(direction) 
+    let currentNode = s:GetSelectedNode()
+    if currentNode == {} || currentNode.IsRoot()
+        call s:Echo("cannot jump to " . (a:direction ? "last" : "first") .  " child")
+        return
+    end
+    let dirNode = currentNode.parent
+    let childNodes = dirNode.GetVisibleChildren()
+
+    let targetNode = childNodes[0]
+    if a:direction
+        let targetNode = childNodes[len(childNodes) - 1]
+    endif
+
+    if targetNode.Equals(currentNode)
+        let siblingDir = currentNode.parent.FindOpenDirSiblingWithChildren(a:direction)
+        if siblingDir != {} 
+            let indx = a:direction ? siblingDir.GetVisibleChildCount()-1 : 0
+            let targetNode = siblingDir.GetChildByIndex(indx, 1)
+        endif
+    endif
+
+    call s:PutCursorOnNode(targetNode, 1)
+
+    call s:CenterView()
+endfunction
+
+
 "FUNCTION: s:OpenDirNodeSplit(treenode)"{{{2
 "Open the file represented by the given node in a new window.
 "No action is taken for file nodes
@@ -1908,13 +1993,10 @@ function! s:OpenNodeSplit(treenode)
         let below=g:NERDTreeWinPos ? 1 : 0
     endif
 
-    " Get the window number of the explorer window
-    let n = s:GetTreeWinNum()
-
     " Attempt to go to adjacent window
     exec(back)
 
-    let onlyOneWin = n==winnr()
+    let onlyOneWin = (winnr() == s:GetTreeWinNum())
 
     " If no adjacent window, set splitright and splitbelow appropriately
     if onlyOneWin
@@ -1932,6 +2014,8 @@ function! s:OpenNodeSplit(treenode)
         let splitMode = "vertical"
     endif
 
+    echoerr "silent " . splitMode." sp " . a:treenode.path.StrForEditCmd()
+
     " Open the new window
     try
         exec("silent " . splitMode." sp " . a:treenode.path.StrForEditCmd())
@@ -1939,7 +2023,7 @@ function! s:OpenNodeSplit(treenode)
 		call s:PutCursorInTreeWin()
         throw "NERDTree.view.FileOpen exception: ". a:treenode.path.Str(0) ." is already open and modified."
     catch /^Vim\%((\a\+)\)\=:/
-        "do nothing 
+        do nothing 
     endtry
 
     " resize the explorer window if it is larger than the requested size
@@ -2031,7 +2115,7 @@ function! s:RenderView()
     call cursor(line(".")+1, col("."))
 
     "draw the tree 
-    call s:DrawTree(t:NERDTreeRoot, 0, 0, [], len(t:NERDTreeRoot.children) == 1)
+    call s:DrawTree(t:NERDTreeRoot, 0, 0, [], t:NERDTreeRoot.GetChildCount() == 1)
 
     "delete the blank line at the top of the buffer
     :silent 1,1delete _
@@ -2294,11 +2378,10 @@ function! s:BindMappings()
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpLastChild ." :call <SID>JumpToLastChild()<cr>"
     exec "nnoremap <silent> <buffer> ". g:NERDTreeMapJumpRoot ." :call <SID>JumpToRoot()<cr>"
 
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTab ." :call <SID>OpenEntryNewTab(0)<cr>"
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTabSilent ." :call <SID>OpenEntryNewTab(1)<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTab ." :call <SID>OpenNodeNewTab(0)<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenInTabSilent ." :call <SID>OpenNodeNewTab(1)<cr>"
 
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExpl ." :call <SID>OpenExplorer(0)<cr>"
-    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExplNewWin ." :call <SID>OpenExplorer(1)<cr>"
+    exec "nnoremap <silent> <buffer> ". g:NERDTreeMapOpenExpl ." :call <SID>OpenExplorer()<cr>"
 
 
 endfunction
@@ -2389,6 +2472,11 @@ endfunction
 " closes the parent dir of the current node
 function! s:CloseCurrentDir() 
     let treenode = s:GetSelectedNode()
+    if treenode == {}
+        call s:Echo("Select a node first")
+        return
+    endif
+
     let parent = treenode.parent
     if parent.IsRoot()
         call s:Echo("cannot close tree root")
@@ -2435,7 +2523,7 @@ function! s:DeleteNode()
             "if the node is open in a buffer, ask the user if they want to
             "close that buffer 
             let bufnum = bufnr(currentNode.path.Str(0))
-            if bufnum != -1
+            if buflisted(bufnum)
                 let prompt = "\nNode deleted.\n\nThe file is open in buffer ". bufnum . (bufwinnr(bufnum) == -1 ? " (hidden)" : "") .". Delete this buffer? (yN)"
                 call s:PromptToDelBuffer(bufnum, prompt)
             endif
@@ -2487,7 +2575,7 @@ function! s:HandleMiddleMouse()
     endif
 
     if curNode.path.isDirectory
-        call s:OpenExplorer(0)
+        call s:OpenExplorer()
     else
         call s:OpenEntrySplit()
     endif
@@ -2519,7 +2607,7 @@ function! s:InsertNewNode()
         let parentNode = t:NERDTreeRoot.FindNode(newPath.GetPathTrunk())
 
         let newTreeNode = s:oTreeFileNode.New(newPath)
-        if parentNode.isOpen == 1 || !empty(parentNode.children) 
+        if parentNode.isOpen || !empty(parentNode.children) 
             call parentNode.AddChild(newTreeNode, 1)
             call s:RenderView()
             call s:PutCursorOnNode(newTreeNode, 1)
@@ -2529,36 +2617,16 @@ function! s:InsertNewNode()
     endtry
 endfunction
 
-" FUNCTION: s:JumpToChild(first) {{{2
-function! s:JumpToChild(first) 
-    let currentNode = s:GetSelectedNode()
-    if currentNode == {} || currentNode.IsRoot()
-        call s:Echo("cannot jump to " . (a:first ? "first" : "last") .  " child")
-        return
-    end
-    let dirNode = currentNode.parent
-    let childNodes = dirNode.GetChildrenToDisplay()
-
-    let targetNode = childNodes[0]
-    if !a:first
-        let targetNode = childNodes[len(childNodes) - 1]
-    endif
-    call s:PutCursorOnNode(targetNode, 1)
-
-    call s:CenterView()
-endfunction
-
-
 " FUNCTION: s:JumpToFirstChild() {{{2
 " wrapper for the jump to child method
 function! s:JumpToFirstChild() 
-    call s:JumpToChild(1)
+    call s:JumpToChild(0)
 endfunction
 
 " FUNCTION: s:JumpToLastChild() {{{2
 " wrapper for the jump to child method
 function! s:JumpToLastChild() 
-    call s:JumpToChild(0)
+    call s:JumpToChild(1)
 endfunction
 
 " FUNCTION: s:JumpToParent() {{{2
@@ -2593,37 +2661,27 @@ endfunction
 function! s:JumpToSibling(forward) 
     let currentNode = s:GetSelectedNode()
     if !empty(currentNode)
-        let sibling = currentNode.FindSibling(a:forward)
+
+        if !currentNode.path.isDirectory
+
+            if a:forward
+                let sibling = currentNode.parent.FindSibling(1)
+            else
+                let sibling = currentNode.parent
+            endif
+
+        else
+            let sibling = currentNode.FindSibling(a:forward)
+        endif
+
         if !empty(sibling)
             call s:PutCursorOnNode(sibling, 1)
             call s:CenterView()
-        else
-            call s:Echo("no sibling found")
         endif
     else
         call s:Echo("put the cursor on a node first")
     endif
 endfunction
-
-" FUNCTION: s:OpenEntryNewTab(stayCurrentTab) {{{2
-" Opens the currently selected file from the explorer in a
-" new tab
-"
-" Args:
-" stayCurrentTab: if 1 then vim will stay in the current tab, if 0 then vim
-" will go to the tab where the new file is opened
-function! s:OpenEntryNewTab(stayCurrentTab) 
-    let treenode = s:GetSelectedNode()
-    if treenode != {}
-        let curTabNr = tabpagenr()
-        exec "tabedit " . treenode.path.StrForEditCmd()
-        if a:stayCurrentTab
-            exec "tabnext " . curTabNr
-        endif
-    else
-        call s:Echo("select a node first")
-    endif
-endfunction 
 
 " FUNCTION: s:OpenEntrySplit() {{{2
 " Opens the currently selected file from the explorer in a
@@ -2637,27 +2695,43 @@ function! s:OpenEntrySplit()
     endif
 endfunction 
 
-" FUNCTION: s:OpenExplorer(split) {{{2
-function! s:OpenExplorer(split) 
+" FUNCTION: s:OpenExplorer() {{{2
+function! s:OpenExplorer() 
     let treenode = s:GetSelectedDir()
     if treenode != {}
-        if a:split == 1
+        let oldwin = winnr()
+        wincmd p
+        if oldwin == winnr() || (&modified && s:BufInWindows(winbufnr(winnr())) < 2)
+            wincmd p
             call s:OpenDirNodeSplit(treenode)
         else
-            let oldwin = winnr()
-            wincmd p
-            if oldwin == winnr() || (&modified && s:BufInWindows(winbufnr(winnr())) < 2)
-                wincmd p
-                call s:OpenDirNodeSplit(treenode)
-            else
-                exec ("edit " . treenode.path.StrForEditCmd())
-            endif
+            exec ("silent edit " . treenode.path.StrForEditCmd())
         endif
     else
         call s:Echo("select a node first")
     endif
-    
 endfunction
+
+" FUNCTION: s:OpenNodeNewTab(stayCurrentTab) {{{2
+" Opens the currently selected file from the explorer in a
+" new tab
+"
+" Args:
+" stayCurrentTab: if 1 then vim will stay in the current tab, if 0 then vim
+" will go to the tab where the new file is opened
+function! s:OpenNodeNewTab(stayCurrentTab) 
+    let treenode = s:GetSelectedNode()
+    if treenode != {}
+        let curTabNr = tabpagenr()
+        exec "tabedit " . treenode.path.StrForEditCmd()
+        if a:stayCurrentTab
+            exec "tabnext " . curTabNr
+        endif
+    else
+        call s:Echo("select a node first")
+    endif
+endfunction 
+
 
 " FUNCTION: s:OpenNodeRecursively() {{{2
 function! s:OpenNodeRecursively() 
@@ -2888,8 +2962,7 @@ CONTENTS {{{2                                              *NERDTree-contents*
     8.Credits.................................|NERDTreeCredits|
 
 ==============================================================================
-                                                                    *NERDTree*
-1. Intro {{{2 ~
+1. Intro {{{2                                                       *NERDTree*
 
 What is this "NERD tree"??
 
@@ -2933,12 +3006,10 @@ The following features and functionality are provided by the NERD tree:
     * You can have a separate NERD tree for each tab   
 
 ==============================================================================
-                                                       *NERDTreeFunctionality*
-2. Functionality provided {{{2 ~
+2. Functionality provided {{{2                         *NERDTreeFunctionality* 
 
 ------------------------------------------------------------------------------
-                                                            *NERDTreeCommands*
-2.1. Commands {{{3 ~
+2.1. Commands {{{3                                          *NERDTreeCommands*
 
 :NERDTree [start-directory]                                 *:NERDTree*
                 Opens a fresh NERD tree in [start-directory] or the current
@@ -2952,121 +3023,310 @@ The following features and functionality are provided by the NERD tree:
                 rendered again.  If no NERD tree exists for this tab then this
                 command acts the same as the |:NERDTree| command.
 
+------------------------------------------------------------------------------
+2.2. NERD tree Mappings {{{3                                *NERDTreeMappings*
+
+Default  Description~                                             help-tag~
+Key~
+
+o.......Open selected file, or expand selected dir...............|NERDTree-o|
+go......Open selected file, but leave cursor in the NERDTree.....|NERDTree-go|
+t.......Open selected node in a new tab..........................|NERDTree-t|
+T.......Same as 't' but keep the focus on the current tab........|NERDTree-T|
+<tab>...Open selected file in a split window.....................|NERDTree-tab|
+g<tab>..Same as <tab>, but leave the cursor on the NERDTree......|NERDTree-gtab|
+!.......Execute the current file.................................|NERDTree-!|
+O.......Recursively open the selected directory..................|NERDTree-O|
+x.......Close the current nodes parent...........................|NERDTree-x|
+X.......Recursively close all children of the current node.......|NERDTree-X|
+e.......Open a netrw for the current dir.........................|NERDTree-e|
+
+double-click.......same as the |NERDTree-o| map.
+middle-click.......same as |NERDTree-tab| for files, same as 
+                   |NERDTree-e| for dirs.
+
+P.......Jump to the root node....................................|NERDTree-P|
+p.......Jump to current nodes parent.............................|NERDTree-p|
+K.......Jump up inside directories at the current tree depth.....|NERDTree-K|
+J.......Jump down inside directories at the current tree depth...|NERDTree-J|
+<C-j>...Jump down to the next sibling of the current directory...|NERDTree-c-j|
+<C-k>...Jump up to the previous sibling of the current directory.|NERDTree-c-k|
+
+C.......Change the tree root to the selected dir.................|NERDTree-C|
+u.......Move the tree root up one directory......................|NERDTree-u|
+U.......Same as 'u' except the old root node is left open........|NERDTree-U|
+r.......Recursively refresh the current directory................|NERDTree-r|
+R.......Recursively refresh the current root.....................|NERDTree-R|
+m.......Display the filesystem menu..............................|NERDTree-m|
+cd......Change the CWD to the dir of the selected node...........|NERDTree-cd|
+
+H.......Toggle whether hidden files displayed....................|NERDTree-H|
+f.......Toggle whether the file filters are used.................|NERDTree-f|
+F.......Toggle whether files are displayed.......................|NERDTree-F|
+
+q.......Close the NERDTree window................................|NERDTree-q|
+?.......Toggle the display of the quick help.....................|NERDTree-?|
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-o*
+Default key: o
+Map option: NERDTreeMapActivateNode
+Applies to: files and directories.
+
+If a file node is selected, it is opened in the previous window. If a
+directory is selected it is opened or closed depending on its current state.
+
+------------------------------------------------------------------------------
+                                                                 *NERDTree-go*
+Default key: go
+Map option: None
+Applies to: files.
+
+If a file node is selected, it is opened in the previous window, but the
+cursor does not move.
+
+The key combo for this mapping is always "g" + NERDTreeMapActivateNode (see
+|NERDTree-o|).
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-t*
+Default key: t
+Map option: NERDTreeMapOpenInTab
+Applies to: files and directories.
+
+Opens the selected file in a new tab. If a directory is selected, a netrw is
+opened in a new tab.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-T*
+Default key: T
+Map option: NERDTreeMapOpenInTabSilent
+Applies to: files and directories.
+
+The same as |NERDTree-t| except that the focus is kept in the current tab.
+
+------------------------------------------------------------------------------
+                                                                *NERDTree-tab*
+Default key: <tab>
+Map option: NERDTreeMapOpenSplit
+Applies to: files.
+
+Opens the selected file in a new split window and puts the cursor in the new
+window.
+
+------------------------------------------------------------------------------
+                                                               *NERDTree-gtab*
+Default key: g<tab>
+Map option: None
+Applies to: files.
+
+The same as |NERDTree-tab| except that the cursor is not moved.
+
+The key combo for this mapping is always "g" + NERDTreeMapOpenSplit (see
+|NERDTree-tab|).
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-!*
+Default key: !
+Map option: NERDTreeMapExecute
+Applies to: files.
+
+Executes the selected file, prompting for arguments first.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-O*
+Default key: O
+Map option: NERDTreeMapOpenRecursively
+Applies to: directories.
+
+Recursively opens the selelected directory.
+
+All files and directories are cached, but if a directory would not be
+displayed due to file filters (see |NERDTreeIgnore| |NERDTree-f|) or the
+hidden file filter (see |NERDTreeShowHidden|) then it is not opened. This is
+handy, especially if you have .svn directories.
 
 
 ------------------------------------------------------------------------------
-                                                            *NERDTreeMappings*
-2.2. NERD tree Mappings {{{3 ~
+                                                                  *NERDTree-x*
+Default key: x
+Map option: NERDTreeMapCloseDir
+Applies to: files and directories.
 
-When the cursor is in the NERD tree window a number of mappings are available
-to use the tree. They are listed below along with the option name that can be
-used to customise each mapping.
-
-To change a mapping simply set the mapping option in your |vimrc|. Eg >
-    let g:NERDTreeMapOpenSplit = 'i'
-<
-
-Mapping                     Default  Description~
-                            Key~
-
-NERDTreeMapQuit             q        Closes the NERDTree window
-NERDTreeMapActivateNode     o        If the cursor is on a file, this file is
-                                     opened in the previous window. If the
-                                     cursor is on a directory, the directory
-                                     node is expanded in the tree.
-NERDTreeMapPreview          special  Opens the selected file node in the
-                                     previous window, but doesnt move the
-                                     cursor. By default, this is mapped to "g"
-                                     + NERDTreeMapActivateNode, i.e. "go"
-                                     node is expanded in the tree.
-NERDTreeMapOpenRecursively  O        Recursively opens the selected directory.
-                                     This could take a while to complete so be
-                                     prepared to go grab a cup of tea.  Only
-                                     opens dirs that aren't filtered out by
-                                     file filters or
-                                     the hidden files filter.
-NERDTreeMapOpenSplit        <tab>    Opens the selected file in a new split
-                                     window. 
-NERDTreeMapPreviewSplit     special  Opens the selected file node in a new
-                                     split window, but doesnt move the cursor.
-                                     The mapping defaults to "g" +
-                                     NERDTreeMapOpenSplit i.e. "g<tab>"
-NERDTreeMapOpenInTab        t        Opens the selected node in a new tab. If
-                                     a dir is selected then an explorer for
-                                     that dir will be opened.
-NERDTreeMapOpenInTabSilent  T        Same as 't' but keeps the focus on the
-                                     current tab
-NERDTreeMapCloseDir         x        Closes the directory that the cursor is
-                                     inside.
-NERDTreeMapCloseChildren    X        Closes all children (recursively) of the
-                                     current node
-NERDTreeMapChangeRoot       C        Only applies to directories.  Changes the
-                                     current root of the NERD tree to the
-                                     selected directory.
-NERDTreeMapChdir            cd       Changes the current working directory to
-                                     the directory of the selected node.
-NERDTreeMapUpdir            u        Change the root of the tree up one
-                                     directory.
-NERDTreeMapUpdirKeepOpen    U        Same as 'u' except the old root is left 
-                                     open.
-NERDTreeMapRefresh          r        Recursively refreshes the directory that
-                                     the cursor is currently inside. If the
-                                     cursor is on a directory node, this
-                                     directory is refreshed.
-NERDTreeMapRefreshRoot      R        Recursively refreshes the current root of
-                                     the tree... this could take a while for
-                                     large trees.
-NERDTreeMapJumpFirstChild   K        Moves the cursor to the first child of
-                                     the current nodes parent.
-NERDTreeMapJumpLastChild    J        Moves the cursor to last child node of
-                                     the current nodes parent.
-NERDTreeMapJumpRoot         P        Moves the cursor to the root node
-NERDTreeMapJumpParent       p        Moves the cursor to parent directory of
-                                     the directory it is currently inside.
-NERDTreeMapJumpNextSibling  <C-j>    Moves the cursor to next sibling of the
-                                     current node.
-NERDTreeMapJumpPrevSibling  <C-k>    Moves the cursor to previous sibling of
-                                     the current node.
-NERDTreeMapToggleHidden     H        Toggles whether hidden files are shown
-                                     or not.
-NERDTreeMapToggleFilters    f        Toggles whether the file filters (as
-                                     specified in the |NERDTreeIgnore| option)
-                                     are used.
-NERDTreeMapToggleFiles      F        Toggles the |NERDTreeShowFiles| option,
-                                     causing files to be hidden if they are
-                                     currently displayed and vice versa.   
-NERDTreeMapOpenExpl         e        If the cursor is on a directory node,
-                                     this directory is opened in a file
-                                     explorer. If it is on a file, the
-                                     file-node's parent directory is opened in
-                                     a file explorer. The file explorer is
-                                     always opened in the previous window.
-NERDTreeMapOpenExplNewWin   E        Like 'e' except the file explorer is
-                                     opened in a new split window.
-NERDTreeMapFilesystemMenu   m        Displays the filesystem menu see
-                                     |NERDTreeFilesysMenu|.
-NERDTreeMapExecute          !        Executes the current file node after
-                                     prompting the user for args.
-NERDTreeMapHelp             ?        Toggles the display of the quick help at
-                                     the top of the tree.
-
-The following mouse mappings are available:
-
-Key             Description~
-
-double click    Has the same effect as the 'o' map.
-
-middle click    Has a different effect when used on a file and a dir: For
-                files it is the same as the '<tab>' map, for directories it is
-                the same as 'e' map.
-
-
-Additionally, directories can be opened and closed by clicking the '+' and '~'
-symbols on their left.
+Closes the parent of the selected node.
 
 ------------------------------------------------------------------------------
-                                                         *NERDTreeFilesysMenu*
-2.3. The filesystem menu {{{3 ~
+                                                                  *NERDTree-X*
+Default key: X
+Map option: NERDTreeMapCloseChildren
+Applies to: directories.
+
+Recursively closes all children of the selected directory.
+
+Tip: To quickly "reset" the tree, use |NERDTree-P| with this mapping.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-e*
+Default key: e
+Map option: NERDTreeMapOpenExpl
+Applies to: files and directories.
+
+Opens a netrw on the selected directory, or the selected file's directory.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-P*
+Default key: P
+Map option: NERDTreeMapJumpRoot
+Applies to: no restrictions.
+
+Jump to the tree root.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-p*
+Default key: p
+Map option: NERDTreeMapJumpParent
+Applies to: files and directories.
+
+Jump to the parent node of the selected node.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-K*
+Default key: K
+Map option: NERDTreeMapJumpFirstChild
+Applies to: files and directories.
+
+Jump to the first child of the current nodes parent.
+
+If the cursor is already on the first node then do the following:
+    * loop back thru the siblings of the current nodes parent until we find an
+      open dir with children
+    * go to the first child of that node
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-J*
+Default key: J
+Map option: NERDTreeMapJumpLastChild
+Applies to: files and directories.
+
+Jump to the last child of the current nodes parent.
+
+If the cursor is already on the last node then do the following:
+    * loop forward thru the siblings of the current nodes parent until we find
+      an open dir with children
+    * go to the last child of that node
+
+------------------------------------------------------------------------------
+                                                                *NERDTree-c-j*
+Default key: <C-j>
+Map option: NERDTreeMapJumpNextSibling
+Applies to: files and directories.
+
+If a dir node is selected, jump to the next sibling of that node.
+If a file node is selected, jump to the next sibling of that nodes parent.
+
+------------------------------------------------------------------------------
+                                                                *NERDTree-c-k*
+Default key: <C-k>
+Map option: NERDTreeMapJumpPrevSibling
+Applies to: files and directories.
+
+If a dir node is selected, jump to the previous sibling of that node.
+If a file node is selected, jump to the previous sibling of that nodes parent.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-C*
+Default key: C
+Map option: NERDTreeMapChdir
+Applies to: directories.
+
+Made the selected directory node the new tree root.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-u*
+Default key: u
+Map option: NERDTreeMapUpdir
+Applies to: no restrictions.
+
+Move the tree root up a dir (like doing a "cd ..").
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-U*
+Default key: U
+Map option: NERDTreeMapUpdirKeepOpen
+Applies to: no restrictions.
+
+Like |NERDTree-u| except that the old tree root is kept open.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-r*
+Default key: r
+Map option: NERDTreeMapRefresh
+Applies to: files and directories.
+
+If a dir is selected, recursively refresh that dir, i.e. scan the filesystem
+for changes and represent them in the tree.
+
+If a file node is selected then the above is done on it's parent.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-R*
+Default key: R
+Map option: NERDTreeMapRefreshRoot
+Applies to: no restrictions.
+
+Recursively refresh the tree root.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-m*
+Default key: m
+Map option: NERDTreeMapFilesystemMenu
+Applies to: files and directories.
+
+Display the filesystem menu. See |NERDTreeFilesysMenu| for details.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-H*
+Default key: H
+Map option: NERDTreeMapToggleHidden
+Applies to: no restrictions.
+
+Toggles whether hidden files are displayed. Hidden files are any
+file/directory that starts with a "."
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-f*
+Default key: f
+Map option: NERDTreeMapToggleFilters
+Applies to: no restrictions.
+
+Toggles whether file filters are used. See |NERDTreeIgnore| for details.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-F*
+Default key: F
+Map option: NERDTreeMapToggleFiles
+Applies to: no restrictions.
+
+Toggles whether file nodes are displayed.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-q*
+Default key: q
+Map option: NERDTreeMapQuit
+Applies to: no restrictions.
+
+Closes the NERDtree window.
+
+------------------------------------------------------------------------------
+                                                                  *NERDTree-?*
+Default key: ?
+Map option: NERDTreeMapHelp
+Applies to: no restrictions.
+
+Toggles whether the quickhelp is displayed.
+
+------------------------------------------------------------------------------
+2.3. The filesystem menu {{{3                            *NERDTreeFilesysMenu*
 
 The purpose of the filesystem menu is to allow you to perform basic filesystem
 operations quickly from the NERD tree rather than the console.  
@@ -3098,13 +3358,11 @@ deleted but still exists as a buffer you will be given the option to delete
 that buffer. 
 
 ==============================================================================
-                                                             *NERDTreeOptions*
-3. Customisation {{{2 ~
+3. Customisation {{{2                                        *NERDTreeOptions*
 
 
 ------------------------------------------------------------------------------
-                                                       *NERDTreeOptionSummary*
-3.1. Customisation summary {{{3 ~
+3.1. Customisation summary {{{3                        *NERDTreeOptionSummary*
 
 The script provides the following options that can customise the behaviour the
 NERD tree. These options should be set in your vimrc.
@@ -3154,8 +3412,7 @@ NERD tree. These options should be set in your vimrc.
                                 opened.
 
 ------------------------------------------------------------------------------
-                                                      *NERDTreeOptionDetails*
-3.2. Customisation details {{{3 ~
+3.2. Customisation details {{{3                        *NERDTreeOptionDetails*
 
 To enable any of the below options you should put the given line in your 
 ~/.vimrc
@@ -3165,7 +3422,6 @@ If this plugin is making you feel homicidal, it may be a good idea to turn it
 off with this line in your vimrc: >
     let loaded_nerd_tree=1
 <
-
 ------------------------------------------------------------------------------
                                                            *NERDChristmasTree*
 Values: 0 or 1.
@@ -3185,7 +3441,8 @@ If set to 1, the NERD tree window will center around the cursor if it moves to
 within |NERDTreeAutoCenterThreshold| lines of the top/bottom of the window.
 
 This is ONLY done in response to tree navigation mappings, 
-i.e. J K <C-J> <c-K> p P
+i.e. |NERDTree-J| |NERDTree-K| |NERDTree-C-J| |NERDTree-c-K| |NERDTree-p|
+|NERDTree-P|
 
 The centering is done with a |zz| operation.
 
@@ -3218,7 +3475,6 @@ account. The above nodes would then be sorted like this: >
     blarg.c
     boner.c
 <
-
 ------------------------------------------------------------------------------
                                                            *NERDTreeChDirMode*                
 
@@ -3278,7 +3534,8 @@ line: >
     let NERDTreeIgnore=[]
 <
 
-The file filters can be turned on and off dynamically with the f mapping.
+The file filters can be turned on and off dynamically with the |NERDTree-f|
+mapping.
 
 ------------------------------------------------------------------------------
                                                            *NERDTreeMouseMode*                
@@ -3306,12 +3563,9 @@ Default: 1.
 If this option is set to 1 then files are displayed in the NERD tree. If it is
 set to 0 then only directories are displayed.
 
-This option can be toggled dynamically with the F mapping and is useful for
-drastically shrinking the tree when you are navigating to a different part of
-the tree.
-
-This option can be used in conjunction with the e, middle-click and E mappings
-to make the NERD tree function similar to windows explorer.
+This option can be toggled dynamically with the |NERDTree-F| mapping and is
+useful for drastically shrinking the tree when you are navigating to a
+different part of the tree.
 
 ------------------------------------------------------------------------------
                                                           *NERDTreeShowHidden*            
@@ -3319,7 +3573,7 @@ Values: 0 or 1.
 Default: 0.
 
 This option tells vim whether to display hidden files by default. This option
-can be dynamically toggled with the D mapping see |NERDTree_mappings|.
+can be dynamically toggled with the |NERDTree-H| mapping.
 Use one of the follow lines to set this option: >
     let NERDTreeShowHidden=0
     let NERDTreeShowHidden=1
@@ -3415,14 +3669,12 @@ objects to access the data the tree represents and to make changes to the
 filesystem.
 
 ==============================================================================
-                                                              *NERDTreeTodo*
-5. TODO list {{{2 ~
+5. TODO list {{{2                                               *NERDTreeTodo*
 
 Window manager integration?
 
 ==============================================================================
-                                                            *NERDTreeAuthor*
-6. The Author {{{2 ~
+6. The Author {{{2                                            *NERDTreeAuthor*
 
 The author of the NERD tree is a terrible terrible monster called Martyzilla
 who gobbles up small children with milk and sugar for breakfast. He has an odd
@@ -3436,8 +3688,20 @@ Don't be shy --- the worst he can do is slaughter you and stuff you in the
 fridge for later ;)
 
 ==============================================================================
-                                                         *NERDTreeChangelog*
-7. Changelog {{{2 ~
+7. Changelog {{{2                                          *NERDTreeChangelog* 
+
+2.6.0
+    - Extended the behaviour of <c-j/k>. Now if the cursor is on a file node
+      and you use <c-j/k> the cursor will jump to its PARENTS next/previous
+      sibling. Go :help NERDTree-c-j and :help NERDTree-c-k for info.
+    - Extended the behaviour of the J/K mappings. Now if the cursor is on the
+      last child of a node and you push J/K it will jump down to the last child
+      of the next/prev of its parents siblings that is open and has children.
+      Go :help NERDTree-J and :help NERDTree-K for info.
+    - The goal of these changes is to make tree navigation faster.
+    - Reorganised the help page a bit.
+    - Removed the E mapping.
+    - bugfixes
 
 2.5.0
     - Added an option to enforce case sensitivity when sorting tree nodes.
@@ -3560,8 +3824,7 @@ fridge for later ;)
 
 
 ==============================================================================
-                                                             *NERDTreeCredits*
-8. Credits {{{2 ~
+8. Credits {{{2                                              *NERDTreeCredits*
 
 Thanks to Tim Carey-Smith for testing/using the NERD tree from the first
 pre-beta version, for his many suggestions and for his constant stream of bug
