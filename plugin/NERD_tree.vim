@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  7 july 2007
+" Last Change:  8 july 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.6.0'
+let s:NERD_tree_version = '2.6.1'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -2014,8 +2014,6 @@ function! s:OpenNodeSplit(treenode)
         let splitMode = "vertical"
     endif
 
-    echoerr "silent " . splitMode." sp " . a:treenode.path.StrForEditCmd()
-
     " Open the new window
     try
         exec("silent " . splitMode." sp " . a:treenode.path.StrForEditCmd())
@@ -3690,6 +3688,10 @@ fridge for later ;)
 ==============================================================================
 7. Changelog {{{2                                          *NERDTreeChangelog* 
 
+2.6.1
+    - Fixed a major bug with the <tab> mapping. Thanks to Zhang Weiwu for
+      emailing me.
+
 2.6.0
     - Extended the behaviour of <c-j/k>. Now if the cursor is on a file node
       and you use <c-j/k> the cursor will jump to its PARENTS next/previous
@@ -3868,6 +3870,9 @@ Thanks to Michael Madsen for requesting the NERDTreeCaseSensitiveSort option.
 Thanks to AOYAMA Shotaro for suggesting that a "please wait" style message be
 echoed when opening large directories. Also, thanks for the suggestion of
 having public functions in the script to access the internal data :D
+
+Thanks to Zhang Weiwu for emailing me about a bug with the the <tab> mapping
+in 2.6.0
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2:
