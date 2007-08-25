@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  8 july 2007
+" Last Change:  26 august 2007
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.6.1'
+let s:NERD_tree_version = '2.6.2'
 
 "A help file is installed when the script is run for the first time. 
 "Go :help NERD_tree.txt to see it.
@@ -1149,7 +1149,6 @@ function! s:oPath.StrDisplay() dict
         let toReturn .=  s:tree_RO_str
     endif
 
-
     return toReturn
 endfunction
 
@@ -1160,8 +1159,8 @@ endfunction
 function! s:oPath.StrForEditCmd() dict
     if s:running_windows
         return self.StrForOS(0)
-	else
-		return self.Str(1)
+    else
+        return self.Str(1)
     endif
 
 endfunction
@@ -1872,7 +1871,7 @@ function! s:GetSelectedNode()
     endtry
 endfunction
 
-"FUNCTION: s:GetTreeBufNum()"{{{2
+"FUNCTION: s:GetTreeBufNum() {{{2
 "gets the nerd tree buffer number for this tab
 function! s:GetTreeBufNum() 
     if exists("t:NERDTreeWinName")
@@ -1881,7 +1880,7 @@ function! s:GetTreeBufNum()
         return -1
     endif
 endfunction
-"FUNCTION: s:GetTreeWinNum()"{{{2
+"FUNCTION: s:GetTreeWinNum() {{{2
 "gets the nerd tree window number for this tab
 function! s:GetTreeWinNum() 
     if exists("t:NERDTreeWinName")
@@ -1891,7 +1890,7 @@ function! s:GetTreeWinNum()
     endif
 endfunction
 
-"FUNCTION: s:IsTreeOpen()"{{{2
+"FUNCTION: s:IsTreeOpen() {{{2
 function! s:IsTreeOpen() 
     return s:GetTreeWinNum() != -1
 endfunction
@@ -1927,7 +1926,7 @@ function! s:JumpToChild(direction)
 endfunction
 
 
-"FUNCTION: s:OpenDirNodeSplit(treenode)"{{{2
+"FUNCTION: s:OpenDirNodeSplit(treenode) {{{2
 "Open the file represented by the given node in a new window.
 "No action is taken for file nodes
 "
@@ -1939,7 +1938,31 @@ function! s:OpenDirNodeSplit(treenode)
     endif
 endfunction
 
-"FUNCTION: s:OpenFileNodeSplit(treenode)"{{{2
+"FUNCTION: s:OpenFileNode(treenode) {{{2
+"Open the file represented by the given node in the current window, splitting
+"the window if needed
+"
+"ARGS:
+"treenode: file node to open
+function! s:OpenFileNode(treenode) 
+    call s:PutCursorInTreeWin()
+
+    if s:ShouldSplitToOpen(winnr("#"))
+        call s:OpenFileNodeSplit(a:treenode)
+    else
+        try
+            wincmd p
+            exec ("edit " . a:treenode.path.StrForEditCmd())
+        catch /^Vim\%((\a\+)\)\=:E37/
+            call s:PutCursorInTreeWin()
+            call s:Echo("Cannot open file, it is already open and modified")
+        catch /^Vim\%((\a\+)\)\=:/
+            echo v:exception
+        endtry
+    endif
+endfunction
+
+"FUNCTION: s:OpenFileNodeSplit(treenode) {{{2
 "Open the file represented by the given node in a new window.
 "No action is taken for dir nodes
 "
@@ -1955,7 +1978,7 @@ function! s:OpenFileNodeSplit(treenode)
     endif
 endfunction
 
-"FUNCTION: s:OpenNodeSplit(treenode)"{{{2
+"FUNCTION: s:OpenNodeSplit(treenode) {{{2
 "Open the file/dir represented by the given node in a new window
 "
 "ARGS:
@@ -2241,6 +2264,26 @@ function! s:SetupSyntaxHighlighting()
 
     hi def link NERDTreeCurrentNode Search
 endfunction
+
+"FUNCTION: s:ShouldSplitToOpen() {{{2
+"Returns 1 if opening a file from the tree in the given window requires it to
+"be split
+"
+"Args: 
+"winnumber: the number of the window in question
+function! s:ShouldSplitToOpen(winnumber)
+    if &hidden
+        return 0
+    endif
+    let oldwinnr = winnr()
+
+    exec a:winnumber . "wincmd p"
+    let modified = &modified
+    exec oldwinnr . "wincmd p"
+
+    return winnr("$") == 1 || (modified && s:BufInWindows(winbufnr(a:winnumber)) < 2)
+endfunction
+
 "FUNCTION: s:StripMarkupFromLine(line){{{2
 "returns the given line with all the tree parts stripped off
 "
@@ -2313,20 +2356,7 @@ function! s:ActivateNode()
         call s:RenderView()
         call s:PutCursorOnNode(treenode, 0)
     else
-        let oldwin = winnr()
-        wincmd p
-        if oldwin == winnr() || (&modified && s:BufInWindows(winbufnr(winnr())) < 2)
-            wincmd p
-            call s:OpenFileNodeSplit(treenode)
-        else
-            try
-                exec ("edit " . treenode.path.StrForEditCmd())
-            catch /^Vim\%((\a\+)\)\=:E37/
-				call s:PutCursorInTreeWin()
-                call s:Echo("Cannot open file, it is already open and modified")
-            catch /^Vim\%((\a\+)\)\=:/
-            endtry
-        endif
+        call s:OpenFileNode(treenode)
     endif
 endfunction
 
@@ -3688,6 +3718,11 @@ fridge for later ;)
 ==============================================================================
 7. Changelog {{{2                                          *NERDTreeChangelog* 
 
+2.6.2
+    - Now when you try to open a file node into a window that is modified, the
+      window is not split if the &hidden option is set. Thanks to  Niels Aan
+      de Brugh for this suggestion.
+
 2.6.1
     - Fixed a major bug with the <tab> mapping. Thanks to Zhang Weiwu for
       emailing me.
@@ -3873,6 +3908,10 @@ having public functions in the script to access the internal data :D
 
 Thanks to Zhang Weiwu for emailing me about a bug with the the <tab> mapping
 in 2.6.0
+
+Thanks to  Niels Aan de Brugh for the suggestion that the script now split the
+window if you try to open a file in a window containing a modified buffer when
+the &hidden option is set.
 
 === END_DOC
 " vim: set ts=4 sw=4 foldmethod=marker foldmarker={{{,}}} foldlevel=2:
