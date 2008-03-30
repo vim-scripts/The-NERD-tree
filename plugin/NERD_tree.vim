@@ -1,7 +1,7 @@
 " vim global plugin that provides a nice tree explorer
-" Last Change:  18 jan 2008
+" Last Change:  31 March 2008
 " Maintainer:   Martin Grenfell <martin_grenfell at msn dot com>
-let s:NERD_tree_version = '2.7.1'
+let s:NERD_tree_version = '2.8.0'
 
 " SECTION: Script init stuff {{{1
 "============================================================
@@ -43,8 +43,9 @@ endif
 call s:InitVariable("g:NERDTreeHighlightCursorline", 1)
 call s:InitVariable("g:NERDTreeMouseMode", 1)
 call s:InitVariable("g:NERDTreeNotificationThreshold", 100)
-call s:InitVariable("g:NERDTreeShowHidden", 0)
 call s:InitVariable("g:NERDTreeShowFiles", 1)
+call s:InitVariable("g:NERDTreeShowHidden", 0)
+call s:InitVariable("g:NERDTreeShowLineNumbers", 0)
 call s:InitVariable("g:NERDTreeSortDirs", 1)
 
 if !exists("g:NERDTreeSortOrder")
@@ -1442,7 +1443,12 @@ function! s:CreateTreeWin()
     setlocal foldcolumn=0
     setlocal nobuflisted
     setlocal nospell
-    setlocal nonu
+    if g:NERDTreeShowLineNumbers
+        setlocal nu
+    else
+        setlocal nonu
+    endif
+
     iabc <buffer>
 
     if g:NERDTreeHighlightCursorline
